@@ -36,13 +36,13 @@ setup(
     test_suite=None,
     include_package_data=True,
     zip_safe=False,
-    install_requires=[],
+    install_requires=['sqlalchemy>=1.4', 'click>=7'],
     extras_require=None,
-    #entry_points={
-    #  'console_scripts':[
-    #    'name=module.submodule:function',
-    #  ]
-    #},
+    entry_points={
+      'console_scripts':[
+        'qrchoice=qrchoice.cli:main',
+      ]
+    },
     #package_data={
     #  'module' : ['module/path/to/data', 'path/to/glob/*'],
     #},
