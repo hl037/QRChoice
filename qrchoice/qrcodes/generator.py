@@ -47,6 +47,7 @@ def addText(qrc_im:Image.Image, t):
   im_res.paste(qrc_im, (0, int(ceil(ht))))
   imd = ImageDraw.Draw(im_res)
   imd.multiline_text((wq / 2, a), t, fill=0, font=font, anchor='ms', spacing=spacing, align="center")
+  im_res.info['dpi'] = (300, 300)
   return im_res
 
   
