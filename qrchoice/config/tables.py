@@ -15,6 +15,10 @@ class UnknownType(ColumnParserError):
 class UnknownColumnAttributes(ColumnParserError):
   pass
 
+List = common.ExpressionParser.List
+Group = common.ExpressionParser.Group
+Call = common.ExpressionParser.Call
+
 types = {
   'int': sa.Integer,
   'string' : sa.String(256),
@@ -55,7 +59,7 @@ class ColumnParser(common.ExpressionParser):
   def parse(self, s:str):
     res = super().parse(s)
     match res:
-      case (ColumnParser.List, ',', cols) | ((ColumnParser.List, ':', _) as cols) :
+      case List(',', cols) | (List(':', _) as cols) :
         return cols
       case _ :
         raise ColumnParserError('Syntax error')
@@ -82,28 +86,28 @@ def parseColumn(c, fks, uniques, sets):
   extra = {}
   delayed = False
   match c :
-    case (ColumnParser.List, ':', [name, type, *args]) :
+    case  List(':', [name, type, *args]) :
       pass
     case _ :
       raise ColumnParserError('Syntax error')
   match type :
     case str() :
       type = types[type]
-    case  (ColumnParser.List, '.', ( str() as target, str() as fk )) :
+    case  List('.', ( str() as target, str() as fk )) :
       type = sa.ForeignKey(f'{target}.{fk}')
-    case  (ColumnParser.Call, '(', ')', 'fk',
-            (ColumnParser.List, ',', (
+    case  Call('fk', '(', ')',
+            List(',', (
               str() as fk_id,
-              (ColumnParser.List, '.', ( str() as target, str() as fk )))
+              List('.', ( str() as target, str() as fk )))
             )
           ) :
       immediate, _target, l = fks.setdefault(fk_id, (True, target, []))
       if immediate and _target != target :
         raise ColumnParseError(f'Composite foreign key with different target tables : `{_target}` and `{target}`')
       l.append((name, f'{target}.{fk}'))
-    case  (ColumnParser.Call, '(', ')', 'fk', (
+    case  Call('fk', '(', ')', (
               ((str() as fk_id) as target) |
-              (ColumnParser.List, ',', str() as fk_id, str() as target)
+              List(',', str() as fk_id, str() as target)
             )
           ):
       if fk_id in fks :
@@ -111,7 +115,7 @@ def parseColumn(c, fks, uniques, sets):
       fks[fk_id] = (False, target, None)
       delayed = True
       name = fk_id
-    case  (ColumnParser.Call, '(', ')', 'set', str() as target) :
+    case  Call('set', '(', ')', str() as target) :
       sets[name] = EntrySet(name, None, target)
       return None
     case _ :
@@ -121,7 +125,7 @@ def parseColumn(c, fks, uniques, sets):
       case str() :
         k, v = sa_col_args[a]
         extra[k] = v
-      case  (ColumnParser.Call, '(', ')', 'u', str() as u_id):
+      case  Call('u', '(', ')', str() as u_id):
         l = uniques.setdefault(u_id, [])
         l.append(name)
       case _ :

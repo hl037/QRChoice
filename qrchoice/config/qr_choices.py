@@ -1,6 +1,10 @@
 from . import common
 from .tables import addTable
 
+List = common.ExpressionParser.List
+Group = common.ExpressionParser.Group
+Call = common.ExpressionParser.Call
+
 class TemplateParserError(RuntimeError):
   pass
 
@@ -23,14 +27,14 @@ class TemplateParser(common.ExpressionParser):
   def parse(self, template_def):
     t = super().parse(template_def)
     match t :
-      case (str() as cols) | (TemplateParser.List, ',', cols) :
+      case (str() as cols) | List(',', cols) :
         pass
       case _  :
         raise TemplateParserError()
     qrch_fields = []
     for c in cols :
       match c :
-        case (TemplateParser.List, ':', (str() as fname, str() as arity)) :
+        case List(':', (str() as fname, str() as arity)) :
           qrch_fields.append((fname, parseArity(arity)))
         case _ :
           raise TemplateParserError()

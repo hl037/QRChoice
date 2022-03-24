@@ -1,7 +1,7 @@
 from pathlib import Path
 from io import StringIO
 import re
-# from icecream import ic
+from dataclasses import dataclass
 
 section = re.compile(r'\[\[(\w+)\]\]')
 subsection = re.compile(r'\[(\w+)\]')
@@ -90,6 +90,8 @@ class LetterAfterGroup(RuntimeError):
 class NotMatchingEndGroup(RuntimeError):
   pass
 
+from dataclasses import dataclass
+
 class ExpressionParser(object):
   """
   Parser capable of handling parenthesis and square brackets...
@@ -105,6 +107,33 @@ class ExpressionParser(object):
   List = 0
   Group = 1
   Call = 2
+
+  @dataclass
+  class List(object):
+    """
+    List with a separator
+    """
+    dl:str
+    d:list['ExpressionParser.Tree']
+
+  @dataclass
+  class Group(object):
+    """
+    Group (inside group delimiter)
+    """
+    bg:str
+    eg:str
+    d:'ExpressionParser.Tree'
+
+  @dataclass
+  class Call(object):
+    """
+    Call (group with a name before)
+    """
+    name:str
+    bg:str
+    eg:str
+    d:'ExpressionParser.Tree'
 
   Tree = str | tuple[str, 'Tree'] | tuple[str, list['Tree']]
   Stack = list[Tree]
@@ -134,15 +163,14 @@ class ExpressionParser(object):
       if s_ is None :
         s_ = self.S.pop()
     s__ = self.S[-1]
-    if eg != s__[2] :
-      raise NotMatchingEndGroup(f'Group begins with `{s__[1]}` and should end with `{s__[2]}` but `{eg}` found')
-    self.S[-1] = (*s__[:-1], s_)
+    if eg != s__.eg :
+      raise NotMatchingEndGroup(f'Group begins with `{s__.bg}` and should end with `{s__.eg}` but `{eg}` found')
+    self.S[-1].d = s_
     self.L.pop()
     self.m = None
     return
 
   def end_list(self, tok):
-    #breakpoint()
     t, p = tok
     if self.m is not None :
       s_ = self.m
@@ -152,7 +180,7 @@ class ExpressionParser(object):
     if self.L[-1] :
       ct, cp = self.L[-1][-1]
       while cp <= p :
-        self.S[-1][-1].append(s_)
+        self.S[-1].d.append(s_)
         if cp == p and ct == t:
           return
         s_ = self.S.pop()
@@ -160,7 +188,7 @@ class ExpressionParser(object):
         if not self.L[-1] :
           break
         ct, cp = self.L[-1][-1]
-    self.S.append((self.List, t, [s_]))
+    self.S.append(self.List(t, [s_]))
     self.L[-1].append(tok)
 
   def parse(self, s):
@@ -173,16 +201,8 @@ class ExpressionParser(object):
     self.m = ""
     i = 0
     len_s = len(s)
-    # ic(s)
-    print('')
     while i < len_s :
       T, tok = self.get_token(s[i:])
-      # if T != self.LT :
-      #   ic(i, s[i:])
-      #   ic(self.S)
-      #   ic(self.L)
-      #   ic(self.m)
-      #   print('')
       match T:
         case self.LT:
           if self.m is None :
@@ -190,9 +210,9 @@ class ExpressionParser(object):
           self.m += tok
         case self.BG:
           if self.m == "" :
-            self.S.append((Group, *tok, None))
+            self.S.append(Group(*tok, None))
           else :
-            self.S.append((Call, *tok, self.m, None))
+            self.S.append(Call(self.m, *tok, None))
             self.m = ""
           tok = tok[0]
           self.L.append([])
@@ -211,6 +231,5 @@ class ExpressionParser(object):
     if len(self.L[0]) >= 1 :
       self.end_list(self.L[0][0])
     return self.S[0]
-      
-      
-
+  
+  
