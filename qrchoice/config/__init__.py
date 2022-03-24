@@ -26,6 +26,7 @@ def parse(cwd, f):
     if sec not in handlers :
       raise UnknownSection(sec)
     handlers[sec](c, lines)
+  c.do_after_hooks()
   return c
 
 Config = common.Config

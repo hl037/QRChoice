@@ -20,7 +20,32 @@ class _Internal(object):
   __tablename__ = '_qrchoice'
   key = sa.Column(sa.String(26), primary_key=True)
   value = sa.Column(sa.Text)
-    
+  
+@_InternalRegistery.mapped
+class _QRCDetectionRun(object):
+  __tablename__ = '_qrc_detection_run'
+  
+  id = sa.Column(sa.Integer, primary_key=True)
+  data = sa.Column(sa.Text, index=True)
+
+@_InternalRegistery.mapped
+class _QRCDetectionImg(object):
+  __tablename__ = '_qrc_detection_img'
+  id = sa.Column(sa.Integer, primary_key=True)
+  run_id = sa.Column(sa.ForeignKey(_QRCDetectionRun.id), index=True, primary_key=True)
+  image = sa.Column(sa.String(256), unique=True)
+  target = sa.Column(sa.String(128))
+  target_id = sa.Column(sa.Integer)
+  
+@_InternalRegistery.mapped
+class _QRCDetectionQRC(object):
+  __tablename__ = '_qrc_detection_qrc'
+  id = sa.Column(sa.Integer, primary_key=True)
+  img_id = sa.Column(sa.ForeignKey(_QRCDetectionImg.id), index=True)
+  data = sa.Column(sa.String(256))
+  box = sa.Column(sa.JSON)
+
+  
 
 
 class DB(object):
@@ -34,16 +59,19 @@ class DB(object):
   def createIfNeeded(self):
     self.config.sa_model.create_all(self.engine)
     _InternalRegistery.metadata.create_all(self.engine)
-    with sa.orm.Session(self.engine) as s :
+    with self.session() as s :
       s.add(_Internal(key='config', value=str(self.config)))
       s.commit()
+
+  def session(self):
+    return sa.orm.Session(self.engine)
 
   def fill(self):
     with self.engine.connect() as conn :
       for t in self.config.tables :
         if t in self.config.values :
           V = self.config.values[t]
-          T = self.config.sa_model.tables[t] #type: sa.Table
+          T = self.t[t] #type: sa.Table
           ins = T.insert().values(**{ col: sa.bindparam(str(i)) for i, col in enumerate(V.template) })
           l = [ { str(i): v for i, v in enumerate(row) } for row in V.generator ]
           #conn.execute(ins, *( { str(i): v for i, v in enumerate(row) } for row in V.generator ))
@@ -58,13 +86,20 @@ class DB(object):
     T = self.config.sa_model.tables[table]
     return [ c.name for c in T.primary_key ]
 
+  @property
+  def t(self):
+    return self.config.sa_model.tables
+
   @staticmethod
   def fromDB(engine: sa.engine):
     from .config import parse
     with sa.orm.Session(engine) as s :
       _c = s.get(_Internal, 'config')
       return DB(parse(Path(),StringIO(_c.value)), engine)
-    
-    
 
+def getConverter(col: sa.Column):
+  if isinstance(col.type, sa.Integer) :
+    return int
+  elif isinstance(col.type, sa.String) :
+    return str
   
