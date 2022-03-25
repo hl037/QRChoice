@@ -1,14 +1,41 @@
+import json
 from contextlib import contextmanager
 from pathlib import Path
+from typing import Sequence as Seq
+from PIL import Image
 
-from ..database import DB, _QRCDetectionRun as R, _QRCDetection as D, getConverter
+import sqlalchemy as sa
+
+from ..database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 
 class UnknownTable(RuntimeError):
+  pass
+
+class UnknownTableColumn(RuntimeError):
+  pass
+
+class IncompatibleValue(RuntimeError):
   pass
 
 class NoEntryMatchingQRCDetectionConstrainsts(RuntimeError):
   pass
     
+
+TableRunFieldValues = list[tuple[str ,str]]
+
+def parseTable(s:str) -> tuple[str, TableRunFieldValues]:
+  table, *fields = map(str.strip, s.split(':'))
+  return table, [ tuple(map(str.strip, _s.split('='))) for _s in fields ]
+
+def imGenerator(paths):
+  """
+  This image generator closes the file after each read
+  """
+  for p in paths :
+    with Image.open(p) as im :
+      yield im
+    
+  
 
 class MissingTableFields(RuntimeError):
   def __init__(self, entry, d1, d2):
@@ -21,105 +48,110 @@ class MissingTableFields(RuntimeError):
     self.d1 = d1
     self.d2 = d2
 
+QRCDetection = list[tuple[str, list[tuple[int, int]]]]
+
+class BaseReader(object):
+  """
+  Multi QRcode reader
+  """
+  def __init__(self):
+    pass
+
+  def readQRCodes(self, img) -> QRCDetection:
+    """
+    Read qr codes in img, and return a list of tuple (data, [(x0, y0), ..., (x3, y3)]) of the polygon of the read qrcode.
+    """
+    raise NotImplementedError()
+  
+
+from pyzbar.pyzbar import decode as pyzbar_decode
+class ZBarReader(BaseReader):
+  """
+  
+  """
+  def readQRCodes(self, im):
+    return [
+        (
+          d.data.decode('utf8'),
+          [ [p.x, p.y] for p in d.polygon ] 
+        )
+      for d in pyzbar_decode(im)
+    ]
+
+
+zbarReader = ZBarReader()
+    
+
 class QRChoiceRun(object):
   """
-  Class to store data for a QRChoice run on a se of images
+  Class to store data for a QRChoice run on a set of images
   entries is a dict `entry -> ( field -> value )`
   """
-  def __init__(self, db: DB, entries:dict[str, dict[str, str]], id=None):
+  def __init__(self, db: DB, run: R):
     self.db = db
-    self.entries = entries
-    self.id = id
-    self._model = None
-    self._session = None
-    
-    #check all entries correspond to a qrchoice table
-    if id is None :
-      for entry, fields in entries :
-        if entry not in self.qrchoices :
-          raise UnknownTable(entry)
-        T, v = self.qrchoices[entry]
-        table_fields = set(self.db.t[entry].keys())
-        provided_fields = { a[0] for a in v } | set(fields.keys())
-        d1 = table_fields - provided_fields
-        d2 = provided_fields - table_fields
-        if d1 != d2 :
-          raise MissingTableFields(entry, d1, d2)
-      self._cache_converters()
+    self.run = run
 
-  def _cache_converters(self):
-    self._converters = {
-        entry: {
-            col_name: getConverter(col)
-          for col_name, col in self.db.t[entry].c.getitems()
-        }
-      for entry in self.entries.keys()
-    }
-    # self._pk_converters = {
-    #     entry: [
-    #         getConverter(col)
-    #       for col in self.db.t[entry].primary_key
-    #     ]
-    #   for entry in self.entries.keys()
-    # }
+  @classmethod
+  def createOrGetRun(cls, db:DB, entries:list[tuple[str, TableRunFieldValues]]):
+    # check entries
+    data = []
+    for tname, fields in entries :
+      try :
+        t = db.t[tname]
+      except :
+        raise UnknownTable(tname)
+      out_fields = []
+      for k, v in fields :
+        if k not in t.columns :
+          raise UnknownTableColumn(f'{tname}.{k}')
+        col = t.columns[k]
+        conv = getConverter(col)
+        try :
+          val = conv(v)
+        except :
+          raise IncompatibleValue(f'Expected : {conv.__name__}, got "{v}"')
+        out_fields.append([k, val])
+      out_fields.sort()
+      data.append([tname, out_fields])
+    data.sort()
+    d = json.dumps(data)
+    with db.session() as S :
+      res = S.query(R).filter(R.data == d).all()
+      assert len(res) <= 1
+      if len(res) == 1 :
+        return cls(db, res[0])
+      run = R(data=d)
+      S.add(run)
+      S.commit()
+      S.refresh(run)
+      return cls(db, run)
 
-  
-  def replaceDetection(self, image:Path, values:list[str, list]):
-    """
-    Add or replace a detection.
-    values is a list of tuples (qrc_data, [<Polygon>])
-    """
-    assert self._session
-    # Get first entry matching
-    img = str(image)
-    d = self._session.get(D, (self.id, img))
-    todelete = set()
-    if d is not None :
-      # Flag element potentially to delete
-      todelete = set(d.data['created'])
-    # Detect qrchoice...
-    detected = {}
-    for qrc_data, rect in values :
-      key, v = qrc_data.split()
-      if (l := detected.get(key)) is None :
-        l = []
-        detected[key] = l
-      l.append(v)
-    try :
-      entry = next( entry for entry in self.entries.keys() if (
-        set( detected.keys()) == set(qrc[0] for qrc in (qrce := self.qrchoices[entry])) and
-        all( (min_ <= len(detected[field]) <= max_) for field, (min_, max_), *_ in qrce )
-      ))
-    except :
-      raise NoEntryMatchingQRCDetectionConstrainsts(detected)
-      
-
-
-  def _fromModel(self):
-    self.entries = self._model.data['entries']
-    self.id = self._model.id
-    self._cache_converters()
-
-  def _toModel(self):
-    self._model.data = {
-      'entries' : self.entries
-    }
-    
-  @contextmanager
-  def session(self):
-    with self.db.session() as s:
-      if self.id is not None :
-        self._model = s.get(R, self.id)
-        self._fromModel()
+  def update_imgs(self, S:sa.orm.Session, img_paths:Seq[Path], data:Seq[QRCDetection], progress_cb=lambda i, j:None):
+    #TODO : update
+    rid = self.run.id
+    im_ids = []
+    stmt_im_sel = sa.select(I).where(I.image == sa.bindparam('im'))
+    stmt_im_ins = sa.insert(I)
+    for i, p in enumerate(img_paths) :
+      p_s = str(p)
+      imgs = S.scalars(stmt_im_sel, {'im': p_s}).all()
+      assert len(imgs) <= 1
+      if len(imgs) == 1 :
+        #TODO: Maybe simply remove everything related to this image ?
+        raise NotImplementedError('updating is not supported yet')
       else :
-        self._model = R(entry=self.entry, data={})
-        self._toModel()
-        s.add(self._model)
-        s.flush()
-        self.id = self._model.id
-      self._session = s
-      yield
-      self._session = None
+        im_ids.append(
+          S.execute(stmt_im_ins, {'run_id': rid, 'image': p_s}).inserted_primary_key[0]
+        )
+      progress_cb(0, i)
+    S.flush()
+    stmt_qrc_ins = sa.insert(C)
+    detected = [
+        {'img_id': im_id, 'data': d, 'box': box}
+      for i, (im_id, detect) in enumerate(zip(im_ids, data)) for (d, box) in (detect, progress_cb(1, i))[0]
+    ]
+    S.execute(stmt_qrc_ins, detected)
+    S.flush()
 
   @property
   def qrchoices(self):
@@ -132,25 +164,3 @@ class QRChoiceRun(object):
 
 
 
-class BaseReader(object):
-  """
-  Multi QRcode reader
-  """
-  def __init__(self):
-    pass
-
-  def readQRCodes(self, img):
-    """
-    Read qr codes in img, and return a list of tuple (data, [(x0, y0), ..., (x3, y3)]) of the polygon of the read qrcode.
-    """
-    raise NotImplementedError()
-
-
-    
-
-class ZLibReader(BaseReader):
-  """
-  
-  """
-  def __init__(self):
-    

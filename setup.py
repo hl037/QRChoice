@@ -37,7 +37,7 @@ setup(
     include_package_data=True,
     zip_safe=False,
     install_requires=['sqlalchemy>=1.4', 'click>=7', 'rectpack>=0.2.2'],
-    extras_require=None,
+    extras_require=['qrcode', 'pyzbar'],
     entry_points={
       'console_scripts':[
         'qrchoice=qrchoice.cli:main',

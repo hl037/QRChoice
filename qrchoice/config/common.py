@@ -2,6 +2,7 @@ from pathlib import Path
 from io import StringIO
 import re
 from dataclasses import dataclass
+import sqlalchemy as sa
 
 section = re.compile(r'\[\[(\w+)\]\]')
 subsection = re.compile(r'\[(\w+)\]')
@@ -58,7 +59,7 @@ class Config(object):
   """
   def __init__(self, cwd:Path):
     self.cwd = cwd
-    self.sa_model = None
+    self.sa_model = None # type: sa.MetaData
     self.values = {} # type: dict[str, TableValues]
     self.qrchoices = {}
     self._after_hooks = []

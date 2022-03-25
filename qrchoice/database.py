@@ -32,7 +32,7 @@ class _QRCDetectionRun(object):
 class _QRCDetectionImg(object):
   __tablename__ = '_qrc_detection_img'
   id = sa.Column(sa.Integer, primary_key=True)
-  run_id = sa.Column(sa.ForeignKey(_QRCDetectionRun.id), index=True, primary_key=True)
+  run_id = sa.Column(sa.ForeignKey(_QRCDetectionRun.id), index=True)
   image = sa.Column(sa.String(256), unique=True)
   target = sa.Column(sa.String(128))
   target_id = sa.Column(sa.Integer)
@@ -87,7 +87,7 @@ class DB(object):
     return [ c.name for c in T.primary_key ]
 
   @property
-  def t(self):
+  def t(self) -> dict[str, sa.Table]:
     return self.config.sa_model.tables
 
   @staticmethod

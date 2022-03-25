@@ -31,11 +31,11 @@ class TemplateParser(common.ExpressionParser):
         pass
       case _  :
         raise TemplateParserError()
-    qrch_fields = []
+    qrch_fields = {}
     for c in cols :
       match c :
         case List(':', (str() as fname, str() as arity)) :
-          qrch_fields.append((fname, parseArity(arity)))
+          qrch_fields[fname] = parseArity(arity)
         case _ :
           raise TemplateParserError()
     return qrch_fields

@@ -113,6 +113,31 @@ def layoutImg(dbpath, table, output, longside, layout):
   pages = layoutImagesAndQRCodes(images, qrcodes, a4, long_side_turn=longside, layout=layout)
   saveAsPDF(output, pages)
 
+
+@main.command(name='read-qrc')
+@click.argument('dbpath', type=str, nargs=1)
+@click.argument('paths', type=str, nargs=-1)
+@click.option('--table', '-t', type=str, multiple=True, help="passed as : --table=table:column=value:...")
+@click.option('--id', '-i', type=str, default=None)
+def readQrc(dbpath, paths, table, id):
+  from . import database
+  from .qrcodes.reader import parseTable, zbarReader, QRChoiceRun, imGenerator
+
+  db = database.DB.fromDB(database.engineFromPath(dbpath))
+  tables = [ parseTable(t) for t in table ]
+  qrc_run = QRChoiceRun.createOrGetRun(db, tables)
+  im_gen = imGenerator(paths)
+  len_paths = len(paths)
+  print()
+  def progress(i, j):
+    click.echo(f'{50*(i+j/len_paths):>2.2f}%\r', nl=False)
+  with db.session() as S :
+    qrc_run.update_imgs(S, paths, map(zbarReader.readQRCodes, im_gen), progress_cb=progress)
+    S.commit()
+  print()
+
+  
+
 if __name__ == "__main__" :
   main()
 
