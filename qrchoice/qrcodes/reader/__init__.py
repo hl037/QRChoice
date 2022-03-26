@@ -6,7 +6,7 @@ from PIL import Image
 
 import sqlalchemy as sa
 
-from ..database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
+from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 
 class UnknownTable(RuntimeError):
   pass

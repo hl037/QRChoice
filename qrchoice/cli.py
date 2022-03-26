@@ -136,6 +136,45 @@ def readQrc(dbpath, paths, table, id):
     S.commit()
   print()
 
+@main.command(name='browse-db')
+@click.argument('dbpath', type=str, nargs=1)
+def browseDb(dbpath):
+  from . import database
+  from .qrcodes.reader.gui import QRCTreeModel
+  from PySide6.QtWidgets import QTreeView, QApplication
+  
+  db = database.DB.fromDB(database.engineFromPath(dbpath))
+  model = QRCTreeModel(db)
+  app = QApplication([])
+  tv = QTreeView()
+  tv.setModel(model)
+  tv.show()
+  app.exec()
+  return
+  
+
+@main.command(name='test-gui')
+@click.argument('dbpath', type=str, nargs=1)
+@click.option('--im-id', '-i', type=str)
+@dbg_wrap
+def testGui(dbpath, im_id):
+  from . import database
+  from .database import _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
+  from .qrcodes.reader.gui import QRCTreeModel
+  from PySide6.QtWidgets import QTreeView, QApplication
+  import sqlalchemy as sa
+
+  #gui = QRCFixer(db)
+
+  with db.session() as S :
+    im = S.scalar(sa.select(I).where(I.id == im_id))
+    gui.loadIm(S, im)
+  gui.exec()
+  
+
+  
+  
+
   
 
 if __name__ == "__main__" :
