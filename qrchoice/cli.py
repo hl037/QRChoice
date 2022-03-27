@@ -160,11 +160,11 @@ def browseDb(dbpath):
 def testGui(dbpath, im_id):
   from . import database
   from .database import _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
-  from .qrcodes.reader.gui import QRCTreeModel
-  from PySide6.QtWidgets import QTreeView, QApplication
+  from .qrcodes.reader.gui import QRCFixer
   import sqlalchemy as sa
 
-  #gui = QRCFixer(db)
+  db = database.DB.fromDB(database.engineFromPath(dbpath))
+  gui = QRCFixer(db)
 
   with db.session() as S :
     im = S.scalar(sa.select(I).where(I.id == im_id))

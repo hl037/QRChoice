@@ -1,14 +1,39 @@
 import sys
 from dataclasses import dataclass
-from functools import cached_property
+from functools import cached_property, wraps
 import sqlalchemy as sa
 from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsPolygonItem, QWidget
 from PySide6.QtGui import QPixmap, QPolygonF
-from PySide6.QtCore import Qt, QPointF, QAbstractItemModel, QModelIndex
+from PySide6.QtCore import Qt, QPointF, QAbstractItemModel, QModelIndex, Slot, Signal
 
 from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 
 from .ui_qrcfixer import Ui_QRCFixer
+
+from icecream import ic
+
+base_prefix = 'ic> '
+ic.prefix = base_prefix
+
+ic_indent_level = 0
+
+def ic_indent(f):
+  @wraps(f)
+  def _f(*args, **kwargs):
+    global ic_indent_level
+    old = ic.prefix
+    ic(f.__name__)
+    ic_indent_level += 1
+    ic.prefix = '|  ' * ic_indent_level + ic.prefix
+    try :
+      return f(*args, **kwargs)
+    finally :
+      ic_indent_level -= 1
+      ic.prefix = old
+      print(ic.prefix[:-len(base_prefix)])
+  return f
+  #return _f
+
 
 class DBWrapper(object):
   """
@@ -46,21 +71,27 @@ class DBWrapper(object):
         self._qrc = S.scalars(self.stmt_qrc_sel, {'im_id': im_id}).all()
     return self._qrc
 
+  @ic_indent
   def runCount(self):
     return len(self.run())
 
+  @ic_indent
   def imCount(self, run_id):
     return len(self.im(run_id))
 
+  @ic_indent
   def qrcCount(self, im_id):
     return len(self.qrc(im_id))
 
+  @ic_indent
   def getRun(self, ind):
     return self.run()[ind]
 
+  @ic_indent
   def getIm(self, run_id, ind):
     return self.im(run_id)[ind]
 
+  @ic_indent
   def getQrc(self, im_id, ind):
     return self.qrc(im_id)[ind]
   
@@ -103,9 +134,11 @@ class QRCTreeModel(QAbstractItemModel):
     k = _ModelNode(*args)
     return self._nodes.setdefault(k, k)
 
+  @ic_indent
   def hasChildren(self, parent:QModelIndex):
     return parent == rootmi or parent.internalPointer().kind < self.Qrc
 
+  @ic_indent
   def parent(self, mi: QModelIndex):
     if mi == rootmi :
       return QModelIndex()
@@ -113,8 +146,9 @@ class QRCTreeModel(QAbstractItemModel):
       key = mi.internalPointer()
       if key.kind == 0 :
         return QModelIndex()
-      return self.createIndex(key.parent.row, 1, key.parent) 
+      return self.createIndex(key.parent.row, 0, key.parent) 
 
+  @ic_indent
   def index(self, row, column, parent=QModelIndex()):
     if parent == rootmi :
       return self.createIndex(row, column, self._hold(self.Run, self.dbw.getRun(row).id, row, None))
@@ -125,6 +159,7 @@ class QRCTreeModel(QAbstractItemModel):
       return self.createIndex(row, column, self._hold(self.Qrc, self.dbw.getQrc(key.id, row).id, row, key))
     return QModelIndex()
   
+  @ic_indent
   def rowCount(self, parent=QModelIndex()):
     if parent == rootmi :
       return self.dbw.runCount()
@@ -135,9 +170,11 @@ class QRCTreeModel(QAbstractItemModel):
       return self.dbw.qrcCount(key.id)
     return 0
 
+  @ic_indent
   def columnCount(self, parent=QModelIndex()):
     return 1
   
+  @ic_indent
   def data(self, mi:QModelIndex, role=Qt.DisplayRole):
     if mi == rootmi :
       return None
@@ -179,15 +216,33 @@ class QRCFixer(QWidget):
 
   def __init__(self, db:DB):
     self._qtinit()
-    #self.tree_model = QRCTreeModel(db)
-    self.tree_model = SimpleTreeModel()
-    #self.ui.runChooser.setModel(self.tree_model)
-    self.ui.im_list.setModel(self.tree_model)
-    self.view.setScene(QGraphicsScene())
     self.db = db
+    self.tree_model = QRCTreeModel(db)
+    self.ui.runChooser.setModel(self.tree_model)
+    if self.tree_model.rowCount(self.ui.runChooser.rootModelIndex()) :
+      self.onRunChange(self.ui.runChooser.currentIndex())
+      
+    self.view.setScene(QGraphicsScene())
     self.item_im = QGraphicsPixmapItem() # type:QGraphicsPixmapItem
     self.scene.addItem(self.item_im)
     self.polys = [] # type: list[QGraphicsPolygonItem]
+
+    self.ui.runChooser.currentIndexChanged.connect(self.onRunChange)
+    self.ui.im_list.activated.connect(self.onImChanged)
+    
+
+  @Slot(int)
+  def onRunChange(self, ind:int):
+    self.ui.im_list.setModel(self.tree_model)
+    new_index = self.tree_model.index(ind, 0, self.ui.runChooser.rootModelIndex())
+    self.ui.im_list.setRootIndex(new_index)
+    if not self.tree_model.rowCount(new_index):
+      self.ui.qrc_list.setModel(None)
+
+  @Slot(QModelIndex)
+  def onImChanged(self, mi:QModelIndex):
+    self.ui.qrc_list.setModel(self.tree_model)
+    self.ui.qrc_list.setRootIndex(mi)
 
   @property
   def view(self):
