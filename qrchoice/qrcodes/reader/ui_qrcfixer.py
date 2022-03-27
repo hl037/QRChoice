@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (QApplication, QComboBox, QGraphicsView, QHBoxLayo
     QListView, QSizePolicy, QSplitter, QToolButton,
     QVBoxLayout, QWidget)
 
+from .custom import ImageView
+
 class Ui_QRCFixer(object):
     def setupUi(self, QRCFixer):
         if not QRCFixer.objectName():
@@ -30,8 +32,13 @@ class Ui_QRCFixer(object):
         self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
         self.horizontalLayout = QHBoxLayout()
         self.horizontalLayout.setObjectName(u"horizontalLayout")
-        self.view = QGraphicsView(QRCFixer)
+        self.view = ImageView(QRCFixer)
         self.view.setObjectName(u"view")
+        self.view.viewport().setProperty("cursor", QCursor(Qt.CrossCursor))
+        self.view.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
+        self.view.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
+        self.view.setProperty("zoomStep", 0.125000000000000)
 
         self.horizontalLayout.addWidget(self.view)
 
