@@ -125,6 +125,9 @@ class QRCTreeModel(QAbstractItemModel):
   Run = 0
   Im = 1
   Qrc = 2
+
+  DBRole = Qt.UserRole
+  
   def __init__(self, db:DB):
     super().__init__()
     self.dbw = DBWrapper(db)
@@ -179,16 +182,23 @@ class QRCTreeModel(QAbstractItemModel):
     if mi == rootmi :
       return None
     key = mi.internalPointer() # type: _ModelNode
+    
     if key.kind == self.Run :
       if role == Qt.DisplayRole :
         ref = self.dbw.getRun(key.row)
         return f'{ref.id}: {ref.data}'
+      elif role == self.DBRole :
+        return self.dbw.getRun(key.row)
       return None
+    
     if key.kind == self.Im :
       if role == Qt.DisplayRole :
         ref = self.dbw.getIm(key.parent.id, key.row)
         return f'{ref.image}'
+      elif role == self.DBRole :
+        return self.dbw.getIm(key.parent.id, key.row)
       return None
+    
     if key.kind == self.Qrc :
       if role == Qt.DisplayRole :
         ref = self.dbw.getQrc(key.parent.id, key.row)
@@ -197,7 +207,10 @@ class QRCTreeModel(QAbstractItemModel):
         else :
           d = ref.data
         return f'{ref.id}: {d}'
+      elif role == self.DBRole :
+        return self.dbw.getQrc(key.parent.id, key.row)
       return None
+    
     return None
 
 
@@ -220,19 +233,20 @@ class QRCFixer(QWidget):
     self.tree_model = QRCTreeModel(db)
     self.ui.runChooser.setModel(self.tree_model)
     if self.tree_model.rowCount(self.ui.runChooser.rootModelIndex()) :
-      self.onRunChange(self.ui.runChooser.currentIndex())
+      self.changeImListRoot(self.ui.runChooser.currentIndex())
       
     self.view.setScene(QGraphicsScene())
     self.item_im = QGraphicsPixmapItem() # type:QGraphicsPixmapItem
     self.scene.addItem(self.item_im)
     self.polys = [] # type: list[QGraphicsPolygonItem]
 
-    self.ui.runChooser.currentIndexChanged.connect(self.onRunChange)
-    self.ui.im_list.activated.connect(self.onImChanged)
+    self.ui.runChooser.currentIndexChanged.connect(self.changeImListRoot)
+    self.ui.im_list.activated.connect(self.changeQrcListRoot)
+    self.ui.im_list.activated.connect(self.loadIm)
     
 
   @Slot(int)
-  def onRunChange(self, ind:int):
+  def changeImListRoot(self, ind:int):
     self.ui.im_list.setModel(self.tree_model)
     new_index = self.tree_model.index(ind, 0, self.ui.runChooser.rootModelIndex())
     self.ui.im_list.setRootIndex(new_index)
@@ -240,7 +254,7 @@ class QRCFixer(QWidget):
       self.ui.qrc_list.setModel(None)
 
   @Slot(QModelIndex)
-  def onImChanged(self, mi:QModelIndex):
+  def changeQrcListRoot(self, mi:QModelIndex):
     self.ui.qrc_list.setModel(self.tree_model)
     self.ui.qrc_list.setRootIndex(mi)
 
@@ -252,9 +266,14 @@ class QRCFixer(QWidget):
   def scene(self) -> QGraphicsScene:
     return self.view.scene()
 
-  def loadIm(self, S:sa.orm.Session, im:I):
+  @Slot(QModelIndex)
+  def loadIm(self, mi:QModelIndex):
+    im = self.tree_model.data(mi, QRCTreeModel.DBRole)
     self.item_im.setPixmap(QPixmap(im.image))
-    res = S.scalars(self.stmt_sel_qrc, {'im_id': im.id}).all()
+    
+    qrc_count = self.tree_model.rowCount(mi)
+    indices = [ self.tree_model.index(row, 0, mi) for row in range(qrc_count) ]
+    res = [ self.tree_model.data(index, QRCTreeModel.DBRole) for index in indices ]
     for p in self.polys :
       self.scene.removeItem(p)
     self.polys.clear()

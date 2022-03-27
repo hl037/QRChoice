@@ -155,9 +155,8 @@ def browseDb(dbpath):
 
 @main.command(name='test-gui')
 @click.argument('dbpath', type=str, nargs=1)
-@click.option('--im-id', '-i', type=str)
 @dbg_wrap
-def testGui(dbpath, im_id):
+def testGui(dbpath):
   from . import database
   from .database import _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
   from .qrcodes.reader.gui import QRCFixer
@@ -165,16 +164,7 @@ def testGui(dbpath, im_id):
 
   db = database.DB.fromDB(database.engineFromPath(dbpath))
   gui = QRCFixer(db)
-
-  with db.session() as S :
-    im = S.scalar(sa.select(I).where(I.id == im_id))
-    gui.loadIm(S, im)
   gui.exec()
-  
-
-  
-  
-
   
 
 if __name__ == "__main__" :
