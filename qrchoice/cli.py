@@ -165,6 +165,18 @@ def testGui(dbpath):
   db = database.DB.fromDB(database.engineFromPath(dbpath))
   gui = QRCFixer(db)
   gui.exec()
+
+from .qrcodes.reader.gui import *
+@main.command(name='ttt')
+def ttt():
+  app = QApplication()
+  scene = QGraphicsScene()
+  view = QGraphicsView()
+  view.setScene(scene)
+  h = QRCBoxes.Handle(None, None)
+  scene.addItem(h)
+  view.show()
+  app.exec()
   
 
 if __name__ == "__main__" :

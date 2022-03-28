@@ -2,9 +2,15 @@ import sys
 from dataclasses import dataclass
 from functools import cached_property, wraps
 import sqlalchemy as sa
-from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsPolygonItem, QWidget, QUndoView
-from PySide6.QtGui import QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon
-from PySide6.QtCore import Qt, QPointF, QAbstractItemModel, QModelIndex, Slot, Signal
+from PySide6.QtWidgets import (
+    QApplication, QWidget, QGraphicsView, QUndoView,
+    QGraphicsScene, QGraphicsItem, QGraphicsPixmapItem, QGraphicsPolygonItem, QGraphicsRectItem, QGraphicsItemGroup,
+    QGraphicsSceneMouseEvent
+)
+from PySide6.QtGui import (
+    QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon,
+)
+from PySide6.QtCore import Qt, QPointF, QRectF, QAbstractItemModel, QModelIndex, Slot, Signal, QObject, QItemSelectionModel, QPoint
 
 from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 
@@ -137,6 +143,9 @@ class UndoStackModelMixin(object):
       self.new_val = val
       self.role = role
       self.old_val = self.model.data(self.mi, self.role)
+      ic('NEW COMMAND')
+      ic(self.new_val)
+      ic(self.old_val)
       self._success = False
         
 
@@ -157,7 +166,6 @@ class UndoStackModelMixin(object):
       cmd.setObsolete(True)
     return cmd._success
     
-
 class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   """
   Model to display a list of images in a run, the image stored in them, and the qrc found.
@@ -167,7 +175,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   Qrc = 2
 
   DBRole  = Qt.UserRole + 0
-  Polygon = Qt.UserRole + 1
+  PolygonRole = Qt.UserRole + 1
   
   def __init__(self, db:DB, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -252,8 +260,8 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
         return self.dbw.getQrc(key.parent.id, key.row).data
       elif role == self.DBRole :
         return self.dbw.getQrc(key.parent.id, key.row)
-      elif role == self.Polygon :
-        return self.dbw.getQrc(key.parent.id, key.row).box
+      elif role == self.PolygonRole :
+        return [ [x, y] for x, y in self.dbw.getQrc(key.parent.id, key.row).box ]
       return None
     
     return None
@@ -268,10 +276,12 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     if key.kind != self.Qrc:
       raise RuntimeError('Only QRC are editable')
     qrc = self.dbw.getQrc(key.parent.id, key.row)
+    emit_roles = [role]
     if role == Qt.EditRole :
       qrc.data = val
-    elif role == self.Polygon :
+    elif role == self.PolygonRole :
       qrc.box = val
+      emit_roles.append(self.DBRole)
     else :
       return False
     self.dbw.commit(qrc)
@@ -284,9 +294,9 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       return 0
     key = mi.internalPointer() # type: _ModelNode
     if key.kind != self.Qrc :
-      return Qt.ItemIsEnabled | Qt.ItemIsEnabled
+      return Qt.ItemIsSelectable | Qt.ItemIsEnabled
     else :
-      return Qt.ItemIsEnabled | Qt.ItemIsEnabled | Qt.ItemIsEditable
+      return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
 
 class QRCFixer(QWidget):
   """
@@ -319,12 +329,15 @@ class QRCFixer(QWidget):
     if self.tree_model.rowCount(self.ui.runChooser.rootModelIndex()) :
       self.changeImListRoot(self.ui.runChooser.currentIndex())
       
-    self.view.setScene(QGraphicsScene())
+    self.view.setScene(GraphicsScene(self))
     self.item_im = QGraphicsPixmapItem() # type:QGraphicsPixmapItem
     self.scene.addItem(self.item_im)
-    self.polys = [] # type: list[QGraphicsPolygonItem]
+    
+    self.qrc_selection = QItemSelectionModel(self.tree_model, self)
+    self.qrcBoxes = QRCBoxes(self.tree_model, self.scene, self.qrc_selection)
 
     self.ui.runChooser.currentIndexChanged.connect(self.changeImListRoot)
+    self.ui.im_list.activated.connect(self.qrcBoxes.setRootIndex)
     self.ui.im_list.activated.connect(self.changeQrcListRoot)
     self.ui.im_list.activated.connect(self.loadIm)
     
@@ -341,6 +354,7 @@ class QRCFixer(QWidget):
   def changeQrcListRoot(self, mi:QModelIndex):
     self.ui.qrc_list.setModel(self.tree_model)
     self.ui.qrc_list.setRootIndex(mi)
+    self.ui.qrc_list.setSelectionModel(self.qrc_selection)
 
   @property
   def view(self):
@@ -354,21 +368,213 @@ class QRCFixer(QWidget):
   def loadIm(self, mi:QModelIndex):
     im = self.tree_model.data(mi, QRCTreeModel.DBRole)
     self.item_im.setPixmap(QPixmap(im.image))
-    
-    qrc_count = self.tree_model.rowCount(mi)
-    indices = [ self.tree_model.index(row, 0, mi) for row in range(qrc_count) ]
-    res = [ self.tree_model.data(index, QRCTreeModel.DBRole) for index in indices ]
-    for p in self.polys :
-      self.scene.removeItem(p)
-    self.polys.clear()
-    for qrc in res :
-      self.polys.append(
-        self.scene.addPolygon(
-          QPolygonF([ QPointF(x, y) for x, y in qrc.box ])
-        )
-      )
+
+  def noMoveClick(self, pos:QPoint):
+    ic()
+    self.qrc_selection.clearCurrentIndex()
+    self.qrc_selection.clearSelection()
 
   def exec(self):
+    import signal
+    signal.signal(signal.SIGINT, signal.SIG_DFL)
     self.show()
     self.undoView.show()
     self.app.exec()
+
+
+class GraphicsScene(QGraphicsScene):
+  """
+  
+  """
+  def __init__(self, qrcFixer: QRCFixer, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.qrcFixer = qrcFixer
+    self._sendNoMove = True
+    self._integ_move = QPoint(0,0)
+
+  def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
+    ic()
+    ic(ev.isAccepted())
+    super().mousePressEvent(ev)
+    ic(ev.isAccepted())
+    if ev.isAccepted() :
+      self._sendNoMove = False
+    ic(self._sendNoMove)
+      
+  def mouseMoveEvent(self, ev:QGraphicsSceneMouseEvent):
+    super().mouseMoveEvent(ev)
+    if ev.buttons() & Qt.LeftButton :
+      if self._sendNoMove :
+        self._integ_move += ev.screenPos() - ev.lastScreenPos()
+        if max(abs(self._integ_move.x()), abs(self._integ_move.y())) > 5 :
+          self._sendNoMove = False
+      ic(self._sendNoMove)
+
+  def mouseReleaseEvent(self, ev:QGraphicsSceneMouseEvent):
+    super().mouseReleaseEvent(ev)
+    ic(self._sendNoMove)
+    if self._sendNoMove :
+      self.qrcFixer.noMoveClick(ev.scenePos())
+    else :
+      ic('NO NO_MOVE SENT')
+      self._sendNoMove = True
+    self._integ_move = QPoint(0,0)
+
+class QRCBoxes(object):
+  """
+  Class to manage the qrc boxes
+  """
+  class Handle(QGraphicsItemGroup):
+    def __init__(self, qrcBoxes:'QRCBoxes', id, *args, **kwargs):
+      super().__init__(*args, **kwargs)
+      ic('HANDLE CREATE')
+      ic()
+      self.qrcBoxes = qrcBoxes
+      self.id = id
+      self.rect = QGraphicsRectItem(QRectF(QPointF(-20,-20), QPointF(20,20))) # TODO: make it configurable
+      self.addToGroup(self.rect)
+      ic(self.rect)
+
+    def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
+      ic('Handle', ev)
+      super().mousePressEvent(ev)
+      ev.accept()
+
+    def mouseMoveEvent(self, ev:QGraphicsSceneMouseEvent):
+      ic()
+      super().mouseMoveEvent(ev)
+      self.setPos(self.pos() + ev.scenePos() - ev.lastScenePos())
+      self.qrcBoxes.updateBox(self.id, self.pos())
+      ev.accept()
+
+    def mouseReleaseEvent(self, ev:QGraphicsSceneMouseEvent):
+      ic()
+      super().mouseReleaseEvent(ev)
+      self.qrcBoxes.commitBox()
+      ev.accept()
+
+  class PolygonItem(QGraphicsPolygonItem):
+    """
+    Class to manage the polygon (select it when clicked)
+    """
+    def __init__(self, qrcBoxes:'QRCBoxes', mi:QModelIndex, *args, **kwargs):
+      ic('INIT POLYGON')
+      super().__init__(*args, **kwargs)
+      self.qrcBoxes = qrcBoxes
+      self.mi = mi
+      
+    def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
+      ic('POLYGON')
+      super().mousePressEvent(ev)
+      self.qrcBoxes.selection.select(self.mi, QItemSelectionModel.ClearAndSelect)
+      self.qrcBoxes.selection.setCurrentIndex(self.mi, QItemSelectionModel.SelectCurrent)
+      ev.accept()
+
+
+  def __init__(self, tree_model: QRCTreeModel, scene:QGraphicsScene, selection:QItemSelectionModel):
+    self.tree_model = tree_model
+    self.scene = scene
+    self.selection = selection
+    self.selection.currentChanged.connect(self.changeCurrent)
+    self.tree_model.dataChanged.connect(self.changeData)
+    self.polys = [] #type: list[QGraphicsPolygonItem]
+    self.boxes = [] #type: list[list[int]]
+    self.current = rootmi # type: QModelIndex
+    self.parent_mi = None
+    self.handles = []
+
+  @property
+  def cur_box(self):
+    return self.boxes[self.current.row()]
+
+  @Slot(QModelIndex, QModelIndex)
+  def changeCurrent(self, mi:QModelIndex, prev:QModelIndex):
+    ic()
+    ic(mi)
+    ic(self.current)
+    ic(mi == self.current)
+    ic(mi.isValid())
+    if self.current == mi :
+      return
+    self.current = mi
+    
+    ic(mi.parent())
+    ic(self.parent_mi)
+    ic(mi.parent() == self.parent_mi)
+    #clear previous
+    #TODO: change poly brush
+    for h in self.handles :
+      self.scene.removeItem(h)
+    self.handles.clear() #Free instances
+    
+    #invalid mi -> don't select anything else
+    if not mi.isValid() or mi.parent() != self.parent_mi :
+      return
+    
+    #Else -> create handles
+    #TODO: handle no box
+    box = self.cur_box
+    for i, (x, y) in enumerate(box) :
+      h = QRCBoxes.Handle(self, i)
+      self.handles.append(h) # Here is where we incref
+      h.setPos(x, y)
+      self.scene.addItem(h)
+    ic(self.handles)
+    #TODO: change poly brush
+
+  def updateBox(self, ind:int, pos:QPointF):
+    box = self.cur_box
+    box[ind][:] = pos.x(), pos.y()
+    self.polys[self.current.row()].setPolygon(self.makePoly(box))
+
+  def commitBox(self):
+    self.tree_model.setData(self.current, [ [x, y] for x, y in self.cur_box ], QRCTreeModel.PolygonRole)
+    
+
+  def makePoly(self, box:list[list[int]]):
+    return QPolygonF([ QPointF(x, y) for x, y in box ])
+
+  @Slot(QModelIndex, QModelIndex, 'QList<int>')
+  def changeData(self, topleft:QModelIndex, botright:QModelIndex, roles:list[int]) :
+    ic()
+    if topleft.parent() != self.parent_mi :
+      return
+
+    if QRCTreeModel.PolygonRole in roles :
+      b = topleft.row()
+      e = botright.row() + 1
+      ic(b, e)
+      indices = [ self.tree_model.index(row, 0, self.parent_mi) for row in range(b, e) ]
+      ic(indices)
+      self.boxes[b:e] = [ self.tree_model.data(index, QRCTreeModel.PolygonRole) for index in indices ]
+      ic(self.boxes)
+      for poly, box in zip(self.polys[b:e], self.boxes[b:e]) :
+        poly.setPolygon(self.makePoly(box))
+      #handles
+      if self.current.isValid() and b <= self.current.row() <= e:
+        for h, (x, y) in zip(self.handles, self.boxes[self.current.row()]) :
+          h.setPos(x, y)
+        
+
+  @Slot(QModelIndex)
+  def setRootIndex(self, mi:QModelIndex):
+    if mi == self.parent_mi :
+      return
+    self.parent_mi = mi
+    self.changeCurrent(rootmi, self.current)
+    qrc_count = self.tree_model.rowCount(mi)
+    ic(qrc_count)
+    indices = [ self.tree_model.index(row, 0, mi) for row in range(qrc_count) ]
+    ic(indices)
+    for p in self.polys :
+      self.scene.removeItem(p)
+    self.polys = [ self.PolygonItem(self, mi) for mi in indices ]
+    ic(self.polys)
+    for p in self.polys :
+      ic('ADD', p)
+      self.scene.addItem(p)
+    ic('ADDED')
+    self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
+    ic('DATA CHANGED')
+
+
