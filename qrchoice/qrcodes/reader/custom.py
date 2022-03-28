@@ -1,7 +1,7 @@
 
 from PySide6.QtCore import Property
 from PySide6.QtGui import QWheelEvent
-from PySide6.QtWidgets import QGraphicsView
+from PySide6.QtWidgets import QGraphicsView, QGraphicsItemGroup, QGraphicsRectItem
 
 from icecream import ic
 
@@ -47,7 +47,5 @@ class ImageView(QGraphicsView):
       self.wheelIntegral = r
       self.scale(f, f)
         
-      
-      
-    
-    
+
+

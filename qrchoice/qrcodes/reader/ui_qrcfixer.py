@@ -88,12 +88,12 @@ class Ui_QRCFixer(object):
 
         self.horizontalLayout_2.addWidget(self.qrc_add)
 
-        self.toolButton_4 = QToolButton(self.verticalLayoutWidget_2)
-        self.toolButton_4.setObjectName(u"toolButton_4")
+        self.qrc_del = QToolButton(self.verticalLayoutWidget_2)
+        self.qrc_del.setObjectName(u"qrc_del")
         icon2 = QIcon(QIcon.fromTheme(u"list-remove"))
-        self.toolButton_4.setIcon(icon2)
+        self.qrc_del.setIcon(icon2)
 
-        self.horizontalLayout_2.addWidget(self.toolButton_4)
+        self.horizontalLayout_2.addWidget(self.qrc_del)
 
         self.qrc_detect = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_detect.setObjectName(u"qrc_detect")
@@ -102,12 +102,19 @@ class Ui_QRCFixer(object):
 
         self.horizontalLayout_2.addWidget(self.qrc_detect)
 
-        self.toolButton = QToolButton(self.verticalLayoutWidget_2)
-        self.toolButton.setObjectName(u"toolButton")
-        icon4 = QIcon(QIcon.fromTheme(u"document-save"))
-        self.toolButton.setIcon(icon4)
+        self.undo = QToolButton(self.verticalLayoutWidget_2)
+        self.undo.setObjectName(u"undo")
+        icon4 = QIcon(QIcon.fromTheme(u"edit-undo"))
+        self.undo.setIcon(icon4)
 
-        self.horizontalLayout_2.addWidget(self.toolButton)
+        self.horizontalLayout_2.addWidget(self.undo)
+
+        self.redo = QToolButton(self.verticalLayoutWidget_2)
+        self.redo.setObjectName(u"redo")
+        icon5 = QIcon(QIcon.fromTheme(u"edit-redo"))
+        self.redo.setIcon(icon5)
+
+        self.horizontalLayout_2.addWidget(self.redo)
 
 
         self.verticalLayout_2.addLayout(self.horizontalLayout_2)
@@ -125,8 +132,9 @@ class Ui_QRCFixer(object):
     def retranslateUi(self, QRCFixer):
         QRCFixer.setWindowTitle(QCoreApplication.translate("QRCFixer", u"QRCode Fixer", None))
         self.qrc_add.setText("")
-        self.toolButton_4.setText(QCoreApplication.translate("QRCFixer", u"...", None))
+        self.qrc_del.setText(QCoreApplication.translate("QRCFixer", u"...", None))
         self.qrc_detect.setText(QCoreApplication.translate("QRCFixer", u"...", None))
-        self.toolButton.setText("")
+        self.undo.setText("")
+        self.redo.setText("")
     # retranslateUi
 

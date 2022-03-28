@@ -2,8 +2,8 @@ import sys
 from dataclasses import dataclass
 from functools import cached_property, wraps
 import sqlalchemy as sa
-from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsPolygonItem, QWidget
-from PySide6.QtGui import QPixmap, QPolygonF
+from PySide6.QtWidgets import QApplication, QGraphicsScene, QGraphicsView, QGraphicsPixmapItem, QGraphicsPolygonItem, QWidget, QUndoView
+from PySide6.QtGui import QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon
 from PySide6.QtCore import Qt, QPointF, QAbstractItemModel, QModelIndex, Slot, Signal
 
 from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
@@ -94,6 +94,12 @@ class DBWrapper(object):
   @ic_indent
   def getQrc(self, im_id, ind):
     return self.qrc(im_id)[ind]
+
+  @ic_indent
+  def commit(self, obj):
+    with self.db.session() as S :
+      S.merge(obj)
+      S.commit()
   
 rootmi = QModelIndex()
 
@@ -116,9 +122,43 @@ class _ModelNode(object):
       return self.kind == kind and self.id == id
     else :
       return self.kind == oth.kind and self.id == oth.id
-  
 
-class QRCTreeModel(QAbstractItemModel):
+
+
+class UndoStackModelMixin(object):
+  """
+  Mixin for handling an undo stack
+  """
+  class ModelEditCommand(QUndoCommand):
+    def __init__(self, model:QAbstractItemModel, mi:QModelIndex, val, role:int):
+      super().__init__()
+      self.model = model
+      self.mi = mi
+      self.new_val = val
+      self.role = role
+      self.old_val = self.model.data(self.mi, self.role)
+      self._success = False
+        
+
+    def redo(self):
+      self._success = self.model.doSetData(self.mi, self.new_val, self.role)
+
+    def undo(self):
+      self.model.doSetData(self.mi, self.old_val, self.role)
+      
+  def __init__(self, stack:QUndoStack, *args, **kwargs):
+    super().__init__(*args, **kwargs)
+    self.undoStack = stack
+    
+  def setData(self, mi:QModelIndex, val, role:int):
+    cmd = self.ModelEditCommand(self, mi, val, role)
+    self.undoStack.push(cmd)
+    if not cmd._success :
+      cmd.setObsolete(True)
+    return cmd._success
+    
+
+class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   """
   Model to display a list of images in a run, the image stored in them, and the qrc found.
   """
@@ -126,10 +166,11 @@ class QRCTreeModel(QAbstractItemModel):
   Im = 1
   Qrc = 2
 
-  DBRole = Qt.UserRole
+  DBRole  = Qt.UserRole + 0
+  Polygon = Qt.UserRole + 1
   
-  def __init__(self, db:DB):
-    super().__init__()
+  def __init__(self, db:DB, *args, **kwargs):
+    super().__init__(*args, **kwargs)
     self.dbw = DBWrapper(db)
     self._nodes = dict() # type: dict[_ModelNode, _ModelNode]
 
@@ -207,13 +248,45 @@ class QRCTreeModel(QAbstractItemModel):
         else :
           d = ref.data
         return f'{ref.id}: {d}'
+      elif role == Qt.EditRole :
+        return self.dbw.getQrc(key.parent.id, key.row).data
       elif role == self.DBRole :
         return self.dbw.getQrc(key.parent.id, key.row)
+      elif role == self.Polygon :
+        return self.dbw.getQrc(key.parent.id, key.row).box
       return None
     
     return None
 
 
+
+  @ic_indent
+  def doSetData(self, mi:QModelIndex, val, role:int):
+    if mi == rootmi :
+      raise RuntimeError('Root item is not editable')
+    key = mi.internalPointer() # type: _ModelNode
+    if key.kind != self.Qrc:
+      raise RuntimeError('Only QRC are editable')
+    qrc = self.dbw.getQrc(key.parent.id, key.row)
+    if role == Qt.EditRole :
+      qrc.data = val
+    elif role == self.Polygon :
+      qrc.box = val
+    else :
+      return False
+    self.dbw.commit(qrc)
+    self.dataChanged.emit(mi, mi, [role])
+    return True
+
+  @ic_indent
+  def flags(self, mi:QModelIndex):
+    if mi == rootmi :
+      return 0
+    key = mi.internalPointer() # type: _ModelNode
+    if key.kind != self.Qrc :
+      return Qt.ItemIsEnabled | Qt.ItemIsEnabled
+    else :
+      return Qt.ItemIsEnabled | Qt.ItemIsEnabled | Qt.ItemIsEditable
 
 class QRCFixer(QWidget):
   """
@@ -230,7 +303,18 @@ class QRCFixer(QWidget):
   def __init__(self, db:DB):
     self._qtinit()
     self.db = db
-    self.tree_model = QRCTreeModel(db)
+    self.undoStack = QUndoStack()
+    self.undoView = QUndoView(self.undoStack)
+    self.tree_model = QRCTreeModel(db, self.undoStack)
+    
+    undo_act = self.undoStack.createUndoAction(self.ui.undo)
+    undo_act.setIcon(QIcon.fromTheme(u"edit-undo"))
+    self.ui.undo.setDefaultAction(undo_act)
+    
+    redo_act = self.undoStack.createRedoAction(self.ui.redo)
+    redo_act.setIcon(QIcon.fromTheme(u"edit-redo"))
+    self.ui.redo.setDefaultAction(redo_act)
+    
     self.ui.runChooser.setModel(self.tree_model)
     if self.tree_model.rowCount(self.ui.runChooser.rootModelIndex()) :
       self.changeImListRoot(self.ui.runChooser.currentIndex())
@@ -286,4 +370,5 @@ class QRCFixer(QWidget):
 
   def exec(self):
     self.show()
+    self.undoView.show()
     self.app.exec()

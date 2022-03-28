@@ -80,7 +80,7 @@
           </widget>
          </item>
          <item>
-          <widget class="QToolButton" name="toolButton_4">
+          <widget class="QToolButton" name="qrc_del">
            <property name="text">
             <string>...</string>
            </property>
@@ -100,12 +100,22 @@
           </widget>
          </item>
          <item>
-          <widget class="QToolButton" name="toolButton">
+          <widget class="QToolButton" name="undo">
            <property name="text">
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="document-save"/>
+            <iconset theme="edit-undo"/>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QToolButton" name="redo">
+           <property name="text">
+            <string/>
+           </property>
+           <property name="icon">
+            <iconset theme="edit-redo"/>
            </property>
           </widget>
          </item>

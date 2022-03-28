@@ -12,8 +12,14 @@ def engineFromPath(path):
 
 _InternalRegistery = sa.orm.registry()
 
+class ReprMixin(object):
+  def __repr__(self):
+    fields = ','.join(f'{name}={repr(getattr(self, name))}' for name in self.__mapper__.column_attrs.keys())
+    return f'{self.__mapper__.class_.__name__}({fields})'
+    
+
 @_InternalRegistery.mapped
-class _Internal(object):
+class _Internal(ReprMixin):
   """
   Internal Key/value registry for storing configuration and information in the db...
   """
@@ -22,14 +28,14 @@ class _Internal(object):
   value = sa.Column(sa.Text)
   
 @_InternalRegistery.mapped
-class _QRCDetectionRun(object):
+class _QRCDetectionRun(ReprMixin):
   __tablename__ = '_qrc_detection_run'
   
   id = sa.Column(sa.Integer, primary_key=True)
   data = sa.Column(sa.Text, index=True)
 
 @_InternalRegistery.mapped
-class _QRCDetectionImg(object):
+class _QRCDetectionImg(ReprMixin):
   __tablename__ = '_qrc_detection_img'
   id = sa.Column(sa.Integer, primary_key=True)
   run_id = sa.Column(sa.ForeignKey(_QRCDetectionRun.id), index=True)
@@ -38,7 +44,7 @@ class _QRCDetectionImg(object):
   target_id = sa.Column(sa.Integer)
   
 @_InternalRegistery.mapped
-class _QRCDetectionQRC(object):
+class _QRCDetectionQRC(ReprMixin):
   __tablename__ = '_qrc_detection_qrc'
   id = sa.Column(sa.Integer, primary_key=True)
   img_id = sa.Column(sa.ForeignKey(_QRCDetectionImg.id), index=True)

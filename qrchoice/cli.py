@@ -153,7 +153,7 @@ def browseDb(dbpath):
   return
   
 
-@main.command(name='test-gui')
+@main.command(name='qrc-gui')
 @click.argument('dbpath', type=str, nargs=1)
 @dbg_wrap
 def testGui(dbpath):
