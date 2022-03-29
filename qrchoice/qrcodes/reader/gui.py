@@ -353,7 +353,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       emit_roles.append(self.DBRole)
     else :
       return False
-    self.dbw.commit(qrc)
+    self.dbw.commit((qrc, ))
     self.dataChanged.emit(mi, mi, [role])
     return True
 
@@ -475,8 +475,6 @@ class QRCFixer(QWidget):
 
   @Slot(QModelIndex)
   def onQrcBuilderActivated(self, parent_mi:QModelIndex):
-    ic()
-    ic(parent_mi)
     self.im_selection.select(parent_mi, QItemSelectionModel.ClearAndSelect)
     self.im_selection.setCurrentIndex(parent_mi, QItemSelectionModel.SelectCurrent)
     self.imActivated.emit(parent_mi)
@@ -528,7 +526,6 @@ class QRCFixer(QWidget):
 
   @Slot(QPointF)
   def noMoveClick(self, pos:QPointF):
-    ic('NO MOVE CLICK')
     if self.qrcBuilder.isActive() :
       self.qrcBuilder.addPoint(pos)
     else :
@@ -585,7 +582,7 @@ class Handle(QGraphicsItemGroup):
     self.manager.commitHandlePosition(self.id)
     ev.accept()
 
-class QRCBoxes(object):
+class QRCBoxes(HandlerManager):
   """
   Class to manage the qrc boxes
   """
@@ -612,6 +609,8 @@ class QRCBoxes(object):
     self.selection = selection
     self.selection.currentChanged.connect(self.changeCurrent)
     self.tree_model.dataChanged.connect(self.changeData)
+    self.tree_model.rowsInserted.connect(self.onRowsInserted)
+    self.tree_model.rowsRemoved.connect(self.onRowsRemoved)
     self.polys = [] #type: list[QGraphicsPolygonItem]
     self.boxes = [] #type: list[list[int]]
     self.current = rootmi # type: QModelIndex
@@ -652,7 +651,7 @@ class QRCBoxes(object):
     box[ind][:] = pos.x(), pos.y()
     self.polys[self.current.row()].setPolygon(self.makePoly(box))
 
-  def commitHandlePosition(self):
+  def commitHandlePosition(self, ind:int):
     self.tree_model.setData(self.current, [ [x, y] for x, y in self.cur_box ], QRCTreeModel.PolygonRole)
     
 
@@ -693,20 +692,23 @@ class QRCBoxes(object):
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
 
   @Slot(QModelIndex, int, int)
-  def onRowsInserted(self, mi:QModelIndex, first, last):
-    if mi.parent() != self.parent_mi :
+  def onRowsInserted(self, parent_mi:QModelIndex, first, last):
+    if parent_mi != self.parent_mi :
       return
     last += 1
     if self.current != rootmi and self.current.row() >= first:
-      self.current = self.tree_model.index(self.current.row() + last - first, 0, self.parent_mi)
-    indices = [ self.tree_model.index(row, 0, mi) for row in range(first, last) ]
-    self.polys[first:first] = [ self.PolygonItem(self, mi) for mi in indices ]
+      self.current = self.tree_model.index(self.current.row() + last - first, 0, parent_mi)
+    indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(first, last) ]
+    n_polys = [ self.PolygonItem(self, parent_mi) for parent_mi in indices ]
+    self.polys[first:first] = n_polys
+    for p in n_polys :
+      self.scene.addItem(p)
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
   
   
   @Slot(QModelIndex, int, int)
-  def onRowsRemoved(self, mi:QModelIndex, first, last):
-    if mi.parent() != self.parent_mi :
+  def onRowsRemoved(self, parent_mi:QModelIndex, first, last):
+    if parent_mi != self.parent_mi :
       return
     last += 1
     for p in self.polys[first:last] :
@@ -715,12 +717,9 @@ class QRCBoxes(object):
     del self.boxes[first:last]
     if self.current != rootmi :
       if self.current.row() >= last :
-        self.current = self.tree_model.index(self.current.row() - last + first, 0, self.parent_mi)
+        self.current = self.tree_model.index(self.current.row() - last + first, 0, parent_mi)
       elif self.current.row() >= last :
         self.changeCurrent(QModelIndex(), self.current)
-
-
-
 
 class QRCBuilder(HandlerManager, QObject):
   """
@@ -760,20 +759,15 @@ class QRCBuilder(HandlerManager, QObject):
       self.positions = [ QPointF(h.pos()) for h in self.builder.handles ]
 
     def redo(self):
-      ic('REDO')
       for h in self.builder.handles :
         self.builder.scene.removeItem(h)
       self.builder.handles.clear()
-      ic(self.builder.handles)
       self.builder._updatePath()
       self.builder._active = False
       self.builder.parent_mi = None
-      ic('BEFORE EMIT')
       self.builder.deactivated.emit()
-      ic('END redo')
 
     def undo(self):
-      ic()
       self.builder.handles[:] = [ Handle(self.builder, i) for i in range(len(self.positions)) ]
       for h, pos in zip(self.builder.handles, self.positions) :
          h.setPos(pos)
@@ -798,12 +792,10 @@ class QRCBuilder(HandlerManager, QObject):
     def redo(self):
       self.clear.redo()
       self.commit_cmd.redo()
-      ic('COMMITED')
 
     def undo(self):
       self.commit_cmd.undo()
       self.clear.undo()
-      ic('DECOMMITED')
 
   class MoveHandleCmd(QUndoCommand):
     """
@@ -864,12 +856,7 @@ class QRCBuilder(HandlerManager, QObject):
       self.undoStack.push(self.CommitCmd(self, p))
 
   def activate(self, parent_mi:QModelIndex):
-    ic('ACTIVATE')
-    ic(parent_mi)
-    ic(self._active, self.parent_mi)
-    ic('---')
     if self._active and self.parent_mi == parent_mi :
-      ic('RETURN NOOP')
       return
     if not self._active :
       self.undoStack.push(self.ActivateCmd(self, parent_mi))
