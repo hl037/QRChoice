@@ -222,6 +222,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     Command to add / remove 
     """
     def __init__(self, model:'QRCTreeModel', parent_mi:QModelIndex, box):
+      super().__init__()
       assert parent_mi != rootmi
       key = parent_mi.internalPointer() # type: _ModelNode
       assert key.kind == model.Im
@@ -245,6 +246,38 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
 
     def undo(self):
       self.model._remove(self.parent_mi, self.row, (self.obj,), invalidate_im = True)
+      
+  class RemQrcCmd(QUndoCommand):
+    """
+    Command to add / remove 
+    """
+    def __init__(self, model:'QRCTreeModel', parent_mi:QModelIndex, row:int, count:int):
+      super().__init__()
+      ic(parent_mi)
+      ic(row)
+      ic(count)
+      assert parent_mi != rootmi
+      key = parent_mi.internalPointer() # type: _ModelNode
+      ic(key)
+      assert key.kind == model.Im
+      self.model = model
+      self.parent_mi = parent_mi
+      self.row = row
+      l = model.dbw.qrc(key.id)
+      self.objs = l[row:row+count]
+
+    def redo(self):
+      ic('REDO')
+      ic(self.objs)
+      self.model._remove(self.parent_mi, self.row, self.objs, invalidate_im = True)
+      ic('REDO END')
+
+    def undo(self):
+      ic('UNDO')
+      ic(self.objs)
+      self.objs = self.model._commit(self.parent_mi, self.row, self.objs, invalidate_im = True)
+      ic(self.objs)
+      ic('UNDO END')
   
   def __init__(self, db:DB, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -358,6 +391,11 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     return True
 
   @ic_indent
+  def removeRows(self, row:int, count:int, parent_mi:QModelIndex):
+    self.undoStack.push(self.RemQrcCmd(self, parent_mi, row, count))
+    return True
+
+  @ic_indent
   def flags(self, mi:QModelIndex):
     if mi == rootmi :
       return 0
@@ -367,12 +405,6 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     else :
       return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
 
-
-
-
-  @ic_indent
-  def addQrc(self, parent_mi:QModelIndex, box, id=None):
-    pass
   
   @ic_indent
   def _commit(self, parent_mi, row, *args, count=None, **kwargs):
@@ -458,13 +490,31 @@ class QRCFixer(QWidget):
     self.imActivated.connect(self.changeQrcListRoot)
     self.imActivated.connect(self.loadIm)
     self.imActivated.connect(self.cleanQrcBuilder)
+    self.imActivated.connect(self.handleAddQrcState)
 
     self.ui.qrc_add.toggled.connect(self.setQrcBuilderActive)
     self.qrcBuilder.activated.connect(self.onQrcBuilderActivated)
     self.qrcBuilder.deactivated.connect(self.onQrcBuilderDeactivated)
     self.qrc_selection.currentChanged.connect(self.onCurrentQrcChanged)
+    self.qrc_selection.currentChanged.connect(self.handleDelQrcState)
+
+    self.ui.qrc_del.clicked.connect(self.removeQrc)
 
   imActivated = Signal(QModelIndex)
+
+  @Slot()
+  def removeQrc(self):
+    index = self.qrc_selection.currentIndex()
+    self.tree_model.removeRow(index.row(), index.parent()) 
+
+  @Slot(QModelIndex)
+  def handleDelQrcState(self, mi:QModelIndex):
+    self.ui.qrc_del.setEnabled(mi != rootmi)
+    
+  @Slot(QModelIndex)
+  def handleAddQrcState(self, mi:QModelIndex):
+    self.ui.qrc_add.setEnabled(mi != rootmi)
+      
 
   @Slot(bool)
   def setQrcBuilderActive(self, active):

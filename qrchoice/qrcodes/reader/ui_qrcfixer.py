@@ -83,6 +83,7 @@ class Ui_QRCFixer(object):
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
         self.qrc_add = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_add.setObjectName(u"qrc_add")
+        self.qrc_add.setEnabled(False)
         icon1 = QIcon(QIcon.fromTheme(u"list-add"))
         self.qrc_add.setIcon(icon1)
         self.qrc_add.setCheckable(True)
@@ -91,6 +92,7 @@ class Ui_QRCFixer(object):
 
         self.qrc_del = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_del.setObjectName(u"qrc_del")
+        self.qrc_del.setEnabled(False)
         icon2 = QIcon(QIcon.fromTheme(u"list-remove"))
         self.qrc_del.setIcon(icon2)
 
