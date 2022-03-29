@@ -1,6 +1,6 @@
 
-from PySide6.QtCore import Property
-from PySide6.QtGui import QWheelEvent
+from PySide6.QtCore import Qt, Property, Slot, Signal, QPointF, QPoint
+from PySide6.QtGui import QWheelEvent, QMouseEvent
 from PySide6.QtWidgets import QGraphicsView, QGraphicsItemGroup, QGraphicsRectItem
 
 from icecream import ic
@@ -16,20 +16,64 @@ class ImageView(QGraphicsView):
     self.zoomStep_val = 1/8
     self.wheelIntegral = 0
     self._stored_cursor = None
+    self._sendNoMove = True
+    self._moving = False
+    self._lastPos = None
+    self._clickPos = None
+    self._clickScenePos = None
 
   def setDragMode(self, *args, **kwargs):
-    ori = self.viewport().cursor()
+    #ori = self.viewport().cursor()
     super().setDragMode(*args, **kwargs)
-    self.viewport().setCursor(ori)
+    #self.viewport().setCursor(ori)
 
-  def mousePressEvent(self, *args, **kwargs):
-    self._stored_cursor = self.viewport().cursor()
-    super().mousePressEvent(*args, **kwargs)
+  def mousePressEvent(self, ev:QMouseEvent):
+    super().mousePressEvent(ev)
+    
+    if not ev.isAccepted() and ev.buttons() & Qt.LeftButton :
+      self._stored_cursor = self.viewport().cursor()
+      self.viewport().setCursor(Qt.ClosedHandCursor)
+      self._sendNoMove = True
+      self._moving = True
+      self._lastPos = ev.position().toPoint()
+      self._clickPos = ev.globalPos()
+      self._clickScenePos = self.mapToScene(ev.pos())
+    else :
+      self._sendNoMove = False
+      
+  def mouseMoveEvent(self, ev:QMouseEvent):
+    if self._moving and ev.buttons() & Qt.LeftButton :
+      hBar = self.horizontalScrollBar()
+      vBar = self.verticalScrollBar()
+      p = ev.position().toPoint()
+      delta = p - self._lastPos
+      self._lastPos = p
+      hBar.setValue(hBar.value() + (delta.x() if self.isRightToLeft() else -delta.x()));
+      vBar.setValue(vBar.value() - delta.y());
+    super().mouseMoveEvent(ev)
+    if ev.buttons() :
+      if self._sendNoMove :
+        p = ev.globalPos() - self._clickPos
+        if max(abs(p.x()), abs(p.y())) > 5 :
+          self._sendNoMove = False
 
   def mouseReleaseEvent(self, *args, **kwargs):
+    if self._stored_cursor :
+      self.viewport().setCursor(self._stored_cursor)
     super().mouseReleaseEvent(*args, **kwargs)
-    self.viewport().setCursor(self._stored_cursor)
     
+    if self._sendNoMove :
+      self.noMoveClick.emit(self._clickScenePos)
+    else :
+      self._sendNoMove = True
+    self._clickPos = None
+    self._stored_cursor = None
+    self._moving = False
+    self._lastPos = None
+    self._clickPos = None
+    self._clickScenePos = None
+
+  noMoveClick = Signal(QPointF)
 
   @property
   def zoomStep(self):

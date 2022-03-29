@@ -4,13 +4,18 @@ from functools import cached_property, wraps
 import sqlalchemy as sa
 from PySide6.QtWidgets import (
     QApplication, QWidget, QGraphicsView, QUndoView,
-    QGraphicsScene, QGraphicsItem, QGraphicsPixmapItem, QGraphicsPolygonItem, QGraphicsRectItem, QGraphicsItemGroup,
-    QGraphicsSceneMouseEvent
+    QGraphicsScene, QGraphicsItem, QGraphicsPixmapItem, QGraphicsPolygonItem,
+    QGraphicsRectItem, QGraphicsItemGroup, QGraphicsPathItem,
+    QGraphicsSceneMouseEvent,
 )
 from PySide6.QtGui import (
-    QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon,
+    QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon, QPainterPath
 )
-from PySide6.QtCore import Qt, QPointF, QRectF, QAbstractItemModel, QModelIndex, Slot, Signal, QObject, QItemSelectionModel, QPoint
+from PySide6.QtCore import (
+    Qt,Slot, Signal, QObject,
+    QPointF, QRectF, QPoint,
+    QAbstractItemModel, QModelIndex, QItemSelectionModel,
+)
 
 from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 
@@ -143,9 +148,6 @@ class UndoStackModelMixin(object):
       self.new_val = val
       self.role = role
       self.old_val = self.model.data(self.mi, self.role)
-      ic('NEW COMMAND')
-      ic(self.new_val)
-      ic(self.old_val)
       self._success = False
         
 
@@ -302,6 +304,7 @@ class QRCFixer(QWidget):
   """
   
   """
+  
   stmt_sel_qrc = sa.select(C).where(C.img_id == sa.bindparam('im_id'))
   def _qtinit(self):
     self.app = QApplication([])
@@ -335,12 +338,19 @@ class QRCFixer(QWidget):
     
     self.qrc_selection = QItemSelectionModel(self.tree_model, self)
     self.qrcBoxes = QRCBoxes(self.tree_model, self.scene, self.qrc_selection)
+    
+    self.qrcBuilder = QRCBuilder(self.scene, self.undoStack)
+
+    self.ui.view.noMoveClick.connect(self.noMoveClick)
 
     self.ui.runChooser.currentIndexChanged.connect(self.changeImListRoot)
     self.ui.im_list.activated.connect(self.qrcBoxes.setRootIndex)
     self.ui.im_list.activated.connect(self.changeQrcListRoot)
     self.ui.im_list.activated.connect(self.loadIm)
-    
+
+    self.ui.qrc_add.toggled.connect(self.qrcBuilder.setActive)
+    self.qrcBuilder.activeChanged.connect(self.ui.qrc_add.setChecked)
+
 
   @Slot(int)
   def changeImListRoot(self, ind:int):
@@ -369,10 +379,14 @@ class QRCFixer(QWidget):
     im = self.tree_model.data(mi, QRCTreeModel.DBRole)
     self.item_im.setPixmap(QPixmap(im.image))
 
-  def noMoveClick(self, pos:QPoint):
-    ic()
-    self.qrc_selection.clearCurrentIndex()
-    self.qrc_selection.clearSelection()
+  @Slot(QPointF)
+  def noMoveClick(self, pos:QPointF):
+    ic('NO MOVE CLICK')
+    if self.qrcBuilder.isActive() :
+      self.qrcBuilder.addPoint(pos)
+    else :
+      self.qrc_selection.clearCurrentIndex()
+      self.qrc_selection.clearSelection()
 
   def exec(self):
     import signal
@@ -383,88 +397,62 @@ class QRCFixer(QWidget):
 
 
 class GraphicsScene(QGraphicsScene):
+  pass
+
+class HandlerManager(object):
   """
-  
+  Abstract class for an object that can manage Handles
   """
-  def __init__(self, qrcFixer: QRCFixer, *args, **kwargs):
+
+  def startMoveHandle(self, id:int, originalPos:QPointF):
+    pass
+
+  def updateHandlePosition(self, id:int, pos:QPointF):
+    pass
+
+  def commitHandlePosition(self, id:int):
+    pass
+    
+    
+class Handle(QGraphicsItemGroup):
+  def __init__(self, manager:HandlerManager, id, *args, **kwargs):
     super().__init__(*args, **kwargs)
-    self.qrcFixer = qrcFixer
-    self._sendNoMove = True
-    self._integ_move = QPoint(0,0)
+    self.manager = manager
+    self.id = id
+    self.rect = QGraphicsRectItem(QRectF(QPointF(-20,-20), QPointF(20,20))) # TODO: make it configurable
+    self.addToGroup(self.rect)
 
   def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
-    ic()
-    ic(ev.isAccepted())
     super().mousePressEvent(ev)
-    ic(ev.isAccepted())
-    if ev.isAccepted() :
-      self._sendNoMove = False
-    ic(self._sendNoMove)
-      
+    self.manager.startMoveHandle(self.id, self.pos())
+    ev.accept()
+
   def mouseMoveEvent(self, ev:QGraphicsSceneMouseEvent):
     super().mouseMoveEvent(ev)
-    if ev.buttons() & Qt.LeftButton :
-      if self._sendNoMove :
-        self._integ_move += ev.screenPos() - ev.lastScreenPos()
-        if max(abs(self._integ_move.x()), abs(self._integ_move.y())) > 5 :
-          self._sendNoMove = False
-      ic(self._sendNoMove)
+    self.setPos(self.pos() + ev.scenePos() - ev.lastScenePos())
+    self.manager.updateHandlePosition(self.id, self.pos())
+    ev.accept()
 
   def mouseReleaseEvent(self, ev:QGraphicsSceneMouseEvent):
     super().mouseReleaseEvent(ev)
-    ic(self._sendNoMove)
-    if self._sendNoMove :
-      self.qrcFixer.noMoveClick(ev.scenePos())
-    else :
-      ic('NO NO_MOVE SENT')
-      self._sendNoMove = True
-    self._integ_move = QPoint(0,0)
+    self.manager.commitHandlePosition(self.id)
+    ev.accept()
 
 class QRCBoxes(object):
   """
   Class to manage the qrc boxes
   """
-  class Handle(QGraphicsItemGroup):
-    def __init__(self, qrcBoxes:'QRCBoxes', id, *args, **kwargs):
-      super().__init__(*args, **kwargs)
-      ic('HANDLE CREATE')
-      ic()
-      self.qrcBoxes = qrcBoxes
-      self.id = id
-      self.rect = QGraphicsRectItem(QRectF(QPointF(-20,-20), QPointF(20,20))) # TODO: make it configurable
-      self.addToGroup(self.rect)
-      ic(self.rect)
-
-    def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
-      ic('Handle', ev)
-      super().mousePressEvent(ev)
-      ev.accept()
-
-    def mouseMoveEvent(self, ev:QGraphicsSceneMouseEvent):
-      ic()
-      super().mouseMoveEvent(ev)
-      self.setPos(self.pos() + ev.scenePos() - ev.lastScenePos())
-      self.qrcBoxes.updateBox(self.id, self.pos())
-      ev.accept()
-
-    def mouseReleaseEvent(self, ev:QGraphicsSceneMouseEvent):
-      ic()
-      super().mouseReleaseEvent(ev)
-      self.qrcBoxes.commitBox()
-      ev.accept()
 
   class PolygonItem(QGraphicsPolygonItem):
     """
     Class to manage the polygon (select it when clicked)
     """
     def __init__(self, qrcBoxes:'QRCBoxes', mi:QModelIndex, *args, **kwargs):
-      ic('INIT POLYGON')
       super().__init__(*args, **kwargs)
       self.qrcBoxes = qrcBoxes
       self.mi = mi
       
     def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
-      ic('POLYGON')
       super().mousePressEvent(ev)
       self.qrcBoxes.selection.select(self.mi, QItemSelectionModel.ClearAndSelect)
       self.qrcBoxes.selection.setCurrentIndex(self.mi, QItemSelectionModel.SelectCurrent)
@@ -489,18 +477,10 @@ class QRCBoxes(object):
 
   @Slot(QModelIndex, QModelIndex)
   def changeCurrent(self, mi:QModelIndex, prev:QModelIndex):
-    ic()
-    ic(mi)
-    ic(self.current)
-    ic(mi == self.current)
-    ic(mi.isValid())
     if self.current == mi :
       return
     self.current = mi
     
-    ic(mi.parent())
-    ic(self.parent_mi)
-    ic(mi.parent() == self.parent_mi)
     #clear previous
     #TODO: change poly brush
     for h in self.handles :
@@ -512,22 +492,20 @@ class QRCBoxes(object):
       return
     
     #Else -> create handles
-    #TODO: handle no box
     box = self.cur_box
     for i, (x, y) in enumerate(box) :
-      h = QRCBoxes.Handle(self, i)
+      h = Handle(self, i)
       self.handles.append(h) # Here is where we incref
       h.setPos(x, y)
       self.scene.addItem(h)
-    ic(self.handles)
     #TODO: change poly brush
 
-  def updateBox(self, ind:int, pos:QPointF):
+  def updateHandlePosition(self, ind:int, pos:QPointF):
     box = self.cur_box
     box[ind][:] = pos.x(), pos.y()
     self.polys[self.current.row()].setPolygon(self.makePoly(box))
 
-  def commitBox(self):
+  def commitHandlePosition(self):
     self.tree_model.setData(self.current, [ [x, y] for x, y in self.cur_box ], QRCTreeModel.PolygonRole)
     
 
@@ -536,18 +514,14 @@ class QRCBoxes(object):
 
   @Slot(QModelIndex, QModelIndex, 'QList<int>')
   def changeData(self, topleft:QModelIndex, botright:QModelIndex, roles:list[int]) :
-    ic()
     if topleft.parent() != self.parent_mi :
       return
 
     if QRCTreeModel.PolygonRole in roles :
       b = topleft.row()
       e = botright.row() + 1
-      ic(b, e)
       indices = [ self.tree_model.index(row, 0, self.parent_mi) for row in range(b, e) ]
-      ic(indices)
       self.boxes[b:e] = [ self.tree_model.data(index, QRCTreeModel.PolygonRole) for index in indices ]
-      ic(self.boxes)
       for poly, box in zip(self.polys[b:e], self.boxes[b:e]) :
         poly.setPolygon(self.makePoly(box))
       #handles
@@ -563,18 +537,181 @@ class QRCBoxes(object):
     self.parent_mi = mi
     self.changeCurrent(rootmi, self.current)
     qrc_count = self.tree_model.rowCount(mi)
-    ic(qrc_count)
     indices = [ self.tree_model.index(row, 0, mi) for row in range(qrc_count) ]
-    ic(indices)
     for p in self.polys :
       self.scene.removeItem(p)
     self.polys = [ self.PolygonItem(self, mi) for mi in indices ]
-    ic(self.polys)
     for p in self.polys :
-      ic('ADD', p)
       self.scene.addItem(p)
-    ic('ADDED')
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
-    ic('DATA CHANGED')
 
+
+class QRCBuilder(HandlerManager, QObject):
+  """
+  Class to build a QRCode
+  """
+  
+  class AddHandleCmd(QUndoCommand):
+    """
+    Command to add an handle to the QRC polygon
+    """
+    def __init__(self, builder:'QRCBuilder', pos:QPointF):
+      super().__init__()
+      self.builder = builder
+      self.pos = pos
+
+    def redo(self):
+      h = Handle(self.builder, len(self.builder.handles))
+      h.setPos(self.pos)
+      self.builder.handles.append(h)
+      self.builder.scene.addItem(h)
+      self.builder._updatePath()
+
+
+    def undo(self):
+      self.builder.scene.removeItem(self.builder.handles[-1])
+      del self.builder.handles[-1]
+      self.builder._updatePath()
+  
+  class ClearCmd(QUndoCommand):
+    """
+    Command to clear the CodeBuilder (after a commit or a focus loss)
+    """
+    def __init__(self, builder:'QRCBuilder'):
+      super().__init__()
+      self.builder = builder
+      self.positions = [ h.pos() for h in self.builder.handles ]
+
+    def redo(self):
+      for h in self.builder.handles :
+        self.builder.scene.removeItem(h)
+      self.builder.handles.clear()
+      self.builder._updatePath()
+      self.builder._active = False
+      self.builder.activeChanged.emit(False)
+
+    def undo(self):
+      self.builder.handles[:] = [ Handle(self.builder, i) for i in range(len(self.positions)) ]
+      for h, pos in zip(self.builder.handles, self.positions) :
+        h.setPos(pos)
+        self.builder.scene.addItem(h)
+      self.builder._updatePath()
+      self.builder._active = True
+      self.builder.activeChanged.emit(True)
+
+  class CommitCmd(QUndoCommand):
+    """
+    Command to perform the commit...
+    """
+    def __init__(self, builder:'QRCBuilder', pos:QPointF):
+      super().__init__()
+      self.builder = builder
+      self.pos = pos
+      self.clear = QRCBuilder.ClearCmd(builder)
+
+    def redo(self):
+      self.clear.redo()
+      #TODO: Actually commit
+      ic('COMMIT')
+
+    def undo(self):
+      #TODO: Decommit
+      ic('DECOMMIT')
+      self.clear.undo()
+
+  class MoveHandleCmd(QUndoCommand):
+    """
+    Command to undo/redo a handle move
+    """
+    def __init__(self, builder:'QRCBuilder', ind:int, src:QPointF):
+      super().__init__()
+      self.builder = builder
+      self.ind = ind
+      self.src = src
+      self.dst = None
+
+    def redo(self):
+      self.builder.handles[self.ind].setPos(self.dst)
+      self.builder._updatePath()
+
+    def undo(self):
+      self.builder.handles[self.ind].setPos(self.src)
+      self.builder._updatePath()
+
+  class SetActiveCmd(QUndoCommand):
+    """
+    Command to start component activity
+    """
+    def __init__(self, builder:'QRCBuilder'):
+      super().__init__()
+      self.builder = builder
+
+    def redo(self):
+      self.builder._active = True
+      self.builder.activeChanged.emit(True)
+
+    def undo(self):
+      self.builder._active = False
+      self.builder.activeChanged.emit(False)
+
+  def __init__(self, scene:QGraphicsScene, undoStack:QUndoStack):
+    super().__init__()
+    self.scene = scene
+    self.undoStack = undoStack
+    self.handles = [] # type: list[Handle]
+    self.path = QGraphicsPathItem()
+    self._move_cmd = None
+    self._active = False
+
+  activeChanged = Signal(bool)
+
+  @Slot(QPointF)
+  def addPoint(self, p:QPointF):
+    if len(self.handles) + 1 < 4 :
+      self.undoStack.push(self.AddHandleCmd(self, p))
+    else :
+      self.undoStack.push(self.CommitCmd(self, p))
+
+  @Slot(bool)
+  def setActive(self, active):
+    ic()
+    ic(self._active, active)
+    if self._active == active :
+      return
+    if self._active :
+      self.undoStack.push(self.ClearCmd(self))
+    else :
+      self.undoStack.push(self.SetActiveCmd(self))
+
+  def startMoveHandle(self, ind:int, pos:QPointF):
+    assert self._move_cmd is None
+    self._move_cmd = self.MoveHandleCmd(self, ind, pos)
+    
+  def updateHandlePosition(self, id:int, pos:QPointF):
+    self._updatePath()
+
+  def commitHandlePosition(self, ind):
+    assert self._move_cmd is not None
+    self._move_cmd.dst = self.handles[ind].pos()
+    self.undoStack.push(self._move_cmd)
+    self._move_cmd = None
+
+  def isActive(self):
+    return self._active
+
+
+  def _updatePath(self):
+    if len(self.handles) > 1 :
+      pp = QPainterPath(self.handles[0].pos())
+      for h in self.handles :
+        pp.lineTo(h.pos())
+      self.path.setPath(pp)
+      if self.path.scene() != self.scene :
+        self.scene.addItem(self.path)
+    else :
+      if self.path.scene() == self.scene :
+        self.scene.removeItem(self.path)
+
+
+  
 

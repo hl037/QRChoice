@@ -35,7 +35,7 @@ class Ui_QRCFixer(object):
         self.view = ImageView(QRCFixer)
         self.view.setObjectName(u"view")
         self.view.viewport().setProperty("cursor", QCursor(Qt.CrossCursor))
-        self.view.setDragMode(QGraphicsView.ScrollHandDrag)
+        self.view.setDragMode(QGraphicsView.NoDrag)
         self.view.setTransformationAnchor(QGraphicsView.AnchorUnderMouse)
         self.view.setResizeAnchor(QGraphicsView.AnchorUnderMouse)
         self.view.setProperty("zoomStep", 0.125000000000000)
@@ -85,6 +85,7 @@ class Ui_QRCFixer(object):
         self.qrc_add.setObjectName(u"qrc_add")
         icon1 = QIcon(QIcon.fromTheme(u"list-add"))
         self.qrc_add.setIcon(icon1)
+        self.qrc_add.setCheckable(True)
 
         self.horizontalLayout_2.addWidget(self.qrc_add)
 
