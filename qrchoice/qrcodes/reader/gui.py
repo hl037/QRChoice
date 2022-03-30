@@ -22,6 +22,7 @@ from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDe
 from .ui_qrcfixer import Ui_QRCFixer
 
 from icecream import ic
+import traceback
 
 base_prefix = 'ic> '
 ic.prefix = base_prefix
@@ -112,7 +113,7 @@ class DBWrapper(object):
   def qrcCount(self, im_id):
     return len(self.qrc(im_id))
 
-  @ic_indent
+  #@ic_indent
   def getRun(self, ind):
     return self.run()[ind]
 
@@ -205,7 +206,10 @@ class UndoStackModelMixin(object):
     if not cmd._success :
       cmd.setObsolete(True)
     return cmd._success
-    
+
+  
+  
+  
 class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   """
   Model to display a list of images in a run, the image stored in them, and the qrc found.
@@ -235,11 +239,6 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
         data=None,
         box=box,
       )
-      # children = model.dbw.qrc(key.id)
-      # if id is not None :
-      #   row = dicho(children, id, lambda x, i: -1 if x.id < i else 1 if x.id > i else 0)
-      # else :
-      #   row = len(children)
 
     def redo(self):
       self.obj = self.model._commit(self.parent_mi, self.row, (self.obj,), invalidate_im = True)[0]
@@ -253,12 +252,8 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     """
     def __init__(self, model:'QRCTreeModel', parent_mi:QModelIndex, row:int, count:int):
       super().__init__()
-      ic(parent_mi)
-      ic(row)
-      ic(count)
       assert parent_mi != rootmi
       key = parent_mi.internalPointer() # type: _ModelNode
-      ic(key)
       assert key.kind == model.Im
       self.model = model
       self.parent_mi = parent_mi
@@ -267,17 +262,10 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       self.objs = l[row:row+count]
 
     def redo(self):
-      ic('REDO')
-      ic(self.objs)
       self.model._remove(self.parent_mi, self.row, self.objs, invalidate_im = True)
-      ic('REDO END')
 
     def undo(self):
-      ic('UNDO')
-      ic(self.objs)
       self.objs = self.model._commit(self.parent_mi, self.row, self.objs, invalidate_im = True)
-      ic(self.objs)
-      ic('UNDO END')
   
   def __init__(self, db:DB, *args, **kwargs):
     super().__init__(*args, **kwargs)
@@ -291,6 +279,28 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   @ic_indent
   def hasChildren(self, parent:QModelIndex):
     return parent == rootmi or parent.internalPointer().kind < self.Qrc
+  
+  @ic_indent
+  def _invalidate(self, parentNode:_ModelNode, start):
+    toInvalidate = [[], [], []]
+    fn = self.dbw.im, self.dbw.qrc
+    if parentNode is None :
+      toInvalidate[0] = [ obj.id for obj in self.dbw.run()[start:] ]
+
+    elif (k := parentNode.kind) == self.Qrc :
+      return
+    
+    else :
+      toInvalidate[k + 1] = [ obj.id for obj in fn[k](parentNode.id)[start:] ]
+
+    for i in range(2) :
+      l = toInvalidate[i]
+      if l :
+        for id in l :
+          del self._nodes[(i, id)]
+          toInvalidate[i + 1].extend(fn[i](id))
+    for id in toInvalidate[-1] :
+      del self._nodes[(2, id)]
 
   @ic_indent
   def parent(self, mi: QModelIndex):
@@ -298,6 +308,8 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       return QModelIndex()
     else :
       key = mi.internalPointer()
+      if isinstance(key, dict) :
+        breakpoint()
       if key.kind == 0 :
         return QModelIndex()
       return self.createIndex(key.parent.row, 0, key.parent) 
@@ -328,7 +340,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
   def columnCount(self, parent=QModelIndex()):
     return 1
   
-  @ic_indent
+  #@ic_indent
   def data(self, mi:QModelIndex, role=Qt.DisplayRole):
     if mi == rootmi :
       return None
@@ -351,20 +363,24 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       return None
     
     if key.kind == self.Qrc :
-      if role == Qt.DisplayRole :
-        ref = self.dbw.getQrc(key.parent.id, key.row)
-        if ref.data is None :
-          d = '<Not read>'
-        else :
-          d = ref.data
-        return f'{ref.id}: {d}'
-      elif role == Qt.EditRole :
-        return self.dbw.getQrc(key.parent.id, key.row).data
-      elif role == self.DBRole :
-        return self.dbw.getQrc(key.parent.id, key.row)
-      elif role == self.PolygonRole :
-        return [ [x, y] for x, y in self.dbw.getQrc(key.parent.id, key.row).box ]
-      return None
+      try :
+        if role == Qt.DisplayRole :
+          ref = self.dbw.getQrc(key.parent.id, key.row)
+          if ref.data is None :
+            d = '<Not read>'
+          else :
+            d = ref.data
+          return f'{ref.id}: {d}'
+        elif role == Qt.EditRole :
+          return self.dbw.getQrc(key.parent.id, key.row).data
+        elif role == self.DBRole :
+          return self.dbw.getQrc(key.parent.id, key.row)
+        elif role == self.PolygonRole :
+          return [ [x, y] for x, y in self.dbw.getQrc(key.parent.id, key.row).box ]
+        return None
+      except:
+        traceback.print_exc()
+        traceback.print_stack()
     
     return None
 
@@ -392,6 +408,11 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
 
   @ic_indent
   def removeRows(self, row:int, count:int, parent_mi:QModelIndex):
+    if parent_mi == rootmi :
+      return False
+    key = parent_mi.internalPointer()
+    if key.kind != self.Im :
+      return False
     self.undoStack.push(self.RemQrcCmd(self, parent_mi, row, count))
     return True
 
@@ -407,36 +428,27 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
 
   
   @ic_indent
-  def _commit(self, parent_mi, row, *args, count=None, **kwargs):
+  def _commit(self, parent_mi:QModelIndex, row, *args, count=None, **kwargs):
     if count is None :
       count = 1
     self.beginInsertRows(parent_mi, row, row + count - 1)
+    parent = parent_mi.internalPointer() if parent_mi != rootmi else None
+    self._invalidate(parent, row)
     rv = self.dbw.commit(*args, **kwargs)
     self.endInsertRows()
     return rv
     
   @ic_indent
-  def _remove(self, parent_mi, row, *args, count=None, **kwargs):
+  def _remove(self, parent_mi:QModelIndex, row, *args, count=None, **kwargs):
     if count is None :
       count = 1
     self.beginRemoveRows(parent_mi, row, row + count - 1)
+    parent = parent_mi.internalPointer() if parent_mi != rootmi else None
+    self._invalidate(parent, row)
     self.dbw.remove(*args, **kwargs)
     self.endRemoveRows()
     
 
-  @ic_indent
-  def removeQrc(self, parent_mi:QModelIndex, row):
-    assert parent_mi != rootmi
-    key = parent_mi.internalPointer() # type: _ModelNode
-    assert key == self.Im
-    
-    qrc = self.dbw.getQrc(key.id, key.row)
-    rv = qrc.id
-    self.beginRemoveRows(parent_mi, row, row)
-
-
-    
-    
 
 class QRCFixer(QWidget):
   """
@@ -748,11 +760,14 @@ class QRCBoxes(HandlerManager):
     last += 1
     if self.current != rootmi and self.current.row() >= first:
       self.current = self.tree_model.index(self.current.row() + last - first, 0, parent_mi)
-    indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(first, last) ]
-    n_polys = [ self.PolygonItem(self, parent_mi) for parent_mi in indices ]
+    indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(first, len(self.polys) + last - first) ]
+    n_polys = [ self.PolygonItem(self, parent_mi) for parent_mi in indices[:last - first] ]
     self.polys[first:first] = n_polys
+    self.boxes[first:first] = [None] * len(n_polys)
     for p in n_polys :
       self.scene.addItem(p)
+    for i, p in enumerate(self.polys[last:], start=last) :
+      p.mi = self.tree_model.index(i, 0, parent_mi)
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
   
   
@@ -765,11 +780,22 @@ class QRCBoxes(HandlerManager):
       self.scene.removeItem(p)
     del self.polys[first:last]
     del self.boxes[first:last]
-    if self.current != rootmi :
-      if self.current.row() >= last :
-        self.current = self.tree_model.index(self.current.row() - last + first, 0, parent_mi)
-      elif self.current.row() >= last :
-        self.changeCurrent(QModelIndex(), self.current)
+    for i, p in enumerate(self.polys[first:], start=first) :
+      p.mi = self.tree_model.index(i, 0, parent_mi)
+    # current is updated by the list view...
+    # breakpoint() 
+    # if self.current != rootmi :
+    #   if self.current.row() >= last :
+    #     self.current = self.tree_model.index(self.current.row() - last + first, 0, parent_mi)
+    #   elif self.current.row() >= first :
+    #     self.changeCurrent(QModelIndex(), self.current)
+
+
+
+
+
+
+
 
 class QRCBuilder(HandlerManager, QObject):
   """
