@@ -78,6 +78,7 @@ class QRCDetectWidget(QWidget):
     self._filtered = None
 
     self.ui.detect.clicked.connect(self.detect)
+    self.ui.apply.clicked.connect(self.apply)
 
   def setIm(self, path:str):
     self._im = Image.open(path)
@@ -106,16 +107,22 @@ class QRCDetectWidget(QWidget):
   def filter(self):
     self._filtered = self._base_extracted
 
+  dataApplied = Signal(str)
+
   @Slot()
   def detect(self):
     res = zbarReader.readQRCodes(self._filtered)
     self.ui.info.setText(f'Résultat :\n{repr(res)}')
     if res :
       self.data = res[0][0]
+    else :
+      self.data = ''
+
+  @Slot()
+  def apply(self):
+    self.dataApplied.emit(self.data)
 
 
-
-    
 
 
 

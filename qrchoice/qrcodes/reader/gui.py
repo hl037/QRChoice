@@ -539,6 +539,8 @@ class QRCFixer(QWidget):
 
     self.ui.qrc_del.clicked.connect(self.removeQrc)
 
+    self.detectWidget.dataApplied.connect(self.onDataApplied)
+
   imActivated = Signal(QModelIndex)
 
   @Slot()
@@ -644,6 +646,12 @@ class QRCFixer(QWidget):
     else :
       self.qrc_selection.clearCurrentIndex()
       self.qrc_selection.clearSelection()
+
+  @Slot(str)
+  def onDataApplied(self, s:str):
+    mi = self.qrc_selection.currentIndex()
+    if mi != rootmi :
+      self.tree_model.setData(mi, s, Qt.EditRole)
 
   def exec(self):
     import signal
