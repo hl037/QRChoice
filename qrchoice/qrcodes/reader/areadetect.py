@@ -1,7 +1,8 @@
+from functools import reduce
 import numpy as np
 
 from PySide6.QtWidgets import (
-    QApplication, QWidget, QGraphicsView, QUndoView,
+    QApplication, QWidget, QGraphicsView, QUndoView, QPushButton,
     QGraphicsScene, QGraphicsItem, QGraphicsPixmapItem, QGraphicsPolygonItem,
     QGraphicsRectItem, QGraphicsItemGroup, QGraphicsPathItem,
     QGraphicsSceneMouseEvent,
@@ -12,11 +13,11 @@ from PySide6.QtGui import (
 from PySide6.QtCore import (
     Qt,Slot, Signal, QObject,
     QPointF, QRectF, QPoint,
-    QAbstractItemModel, QModelIndex, QItemSelectionModel,
+    QAbstractItemModel, QModelIndex, QItemSelectionModel, QAbstractListModel
 )
 
 import PIL
-from PIL import Image
+from PIL import Image, ImageOps, ImageEnhance
 from PIL.ImageQt import ImageQt
 import pillowOkularViewer
 
@@ -58,8 +59,11 @@ def extractArea(im:Image, points:np.ndarray):
   return im.transform((ml, ml), Image.QUAD, points.ravel())
 
 
+class AddFilterHandler(object):
+  def addFilter(self, f):
+    raise NotImplementedError()
 
-class QRCDetectWidget(QWidget):
+class QRCDetectWidget(AddFilterHandler, QWidget):
   """
   
   """
@@ -76,9 +80,27 @@ class QRCDetectWidget(QWidget):
     self._box = None
     self.pixmap = QPixmap()
     self._filtered = None
+    self.filtersModel = FiltersModel()
 
     self.ui.detect.clicked.connect(self.detect)
     self.ui.apply.clicked.connect(self.apply)
+    
+    self.ui.filterView.setModel(self.filtersModel)
+    self.ui.remFilter.clicked.connect(self.removeFilter)
+    self.ui.clearFilters.clicked.connect(self.filtersModel.reset)
+    self.filtersModel.rowsInserted.connect(self.filter)
+    self.filtersModel.rowsRemoved.connect(self.filter)
+    self.filtersModel.modelReset.connect(self.filter)
+    
+    self.filterButtons = []
+
+    for f in imfilters :
+      pb = QPushButton()
+      pb.setText(f.name)
+      self.ui.filterButtons.addWidget(pb)
+      f.addHandler = self
+      pb.clicked.connect(f.add)
+
 
   def setIm(self, path:str):
     self._im = Image.open(path)
@@ -101,11 +123,12 @@ class QRCDetectWidget(QWidget):
     self.ui.info.setText('')
     self._base_extracted = extractArea(self._im, self._box)
     self.filter()
+
+  @Slot()
+  def filter(self):
+    self._filtered = reduce(lambda x, f: f.cb(x), self.filtersModel.filterList, self._base_extracted)
     res = self.pixmap.convertFromImage(ImageQt(self._filtered))
     self.ui.imViewer.setPixmap(self.pixmap)
-
-  def filter(self):
-    self._filtered = self._base_extracted
 
   dataApplied = Signal(str)
 
@@ -122,7 +145,156 @@ class QRCDetectWidget(QWidget):
   def apply(self):
     self.dataApplied.emit(self.data)
 
+  def addFilter(self, f):
+    row = self.currentRow()
+    self.filtersModel.addFilter(f, row)
 
+  @Slot()
+  def removeFilter(self):
+    row = self.currentRow()
+    self.filtersModel.removeFilter(row)
+
+  def currentRow(self):
+    mi = self.ui.filterView.currentIndex()
+    if mi != rootmi :
+      return mi.row()
+    return None
+      
+    
+
+    
+
+rootmi = QModelIndex()
+
+
+class ImFilter(object):
+  """
+  Image filter
+  """
+  name = ''
+  addHandler = None # type:  AddFilterHandler
+
+  def cb(self, im:Image):
+    raise NotImplementedError()
+
+  @Slot()
+  def add(self):
+    if self.addHandler is not None :
+      self.addHandler.addFilter(self)
+
+    
+
+imfilters = [] # type: list[ImFilter]
+
+def registerImFilter(C):
+  imfilters.append(C())
+  return C
+
+@registerImFilter
+class ContrastMore(ImFilter):
+  """
+  Add contrast
+  """
+
+  name = 'contrast *= 1.2'
+  def cb(self, im:Image):
+    en = ImageEnhance.Contrast(im)
+    return en.enhance(1.2)
+  
+@registerImFilter
+class ContrastLess(ImFilter):
+  """
+  Add contrast
+  """
+
+  name = 'contrast *= 0.8'
+  def cb(self, im:Image):
+    en = ImageEnhance.Contrast(im)
+    return en.enhance(0.8)
+    
+@registerImFilter
+class BrightnessMore(ImFilter):
+  """
+  Decrease brightness
+  """
+
+  name = 'brightness *= 1.2'
+  def cb(self, im:Image):
+    en = ImageEnhance.Brightness(im)
+    return en.enhance(1.2)
+  
+@registerImFilter
+class BrightnessLess(ImFilter):
+  """
+  Add brightness
+  """
+
+  name = 'brightness *= 0.8'
+  def cb(self, im:Image):
+    en = ImageEnhance.Brightness(im)
+    return en.enhance(0.8)
+  
+@registerImFilter
+class SharpnessMore(ImFilter):
+  """
+  Decrease sharpness
+  """
+
+  name = 'sharpness *= 1.2'
+  def cb(self, im:Image):
+    en = ImageEnhance.Sharpness(im)
+    return en.enhance(1.2)
+  
+@registerImFilter
+class SharpnessLess(ImFilter):
+  """
+  Decrease sharpness
+  """
+
+  name = 'sharpness *= 0.8'
+  def cb(self, im:Image):
+    en = ImageEnhance.Sharpness(im)
+    return en.enhance(0.8)
+    
+
+class FiltersModel(QAbstractListModel):
+  """
+  Model of image filters
+  """
+  def __init__(self):
+    super().__init__()
+    self.filterList = [] # type: list[ImFilter]
+
+  def rowCount(self, mi:QModelIndex):
+    if not mi.isValid() :
+      return len(self.filterList)
+    return 0
+
+  def data(self, mi:QModelIndex, role:int):
+    if role == Qt.DisplayRole :
+      return self.filterList[mi.row()].name
+
+  @Slot()
+  def reset(self):
+    self.beginResetModel()
+    self.filterList.clear()
+    self.endResetModel()
+
+  def addFilter(self, filter, pos = None):
+    if pos is None :
+      pos = len(self.filterList)
+    ic(pos)
+    self.beginInsertRows(rootmi, pos, pos)
+    self.filterList.insert(pos, filter)
+    self.endInsertRows()
+
+  def removeFilter(self, pos=None):
+    if pos is None :
+      pos = len(self.filterList) - 1
+    ic(pos)
+    self.beginRemoveRows(rootmi, pos, pos)
+    del self.filterList[pos]
+    self.endRemoveRows()
 
 
 
