@@ -14,10 +14,11 @@ from PySide6.QtGui import (
 from PySide6.QtCore import (
     Qt,Slot, Signal, QObject,
     QPointF, QRectF, QPoint,
-    QAbstractItemModel, QModelIndex, QItemSelectionModel,
+    QAbstractItemModel, QModelIndex, QPersistentModelIndex, QItemSelectionModel,
 )
 
 from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
+from .areadetect import QRCDetectWidget
 
 from .ui_qrcfixer import Ui_QRCFixer
 
@@ -183,22 +184,31 @@ class UndoStackModelMixin(object):
     def __init__(self, model:QAbstractItemModel, mi:QModelIndex, val, role:int):
       super().__init__()
       self.model = model
-      self.mi = mi
+      self.mi = self.model.indexToPersistent(mi)
       self.new_val = val
       self.role = role
-      self.old_val = self.model.data(self.mi, self.role)
+      self.old_val = self.model.data(mi, self.role)
       self._success = False
+      self.setText(f'db change role: {role}')
         
 
     def redo(self):
-      self._success = self.model.doSetData(self.mi, self.new_val, self.role)
+      mi = self.model.persistentToIndex(self.mi)
+      self._success = self.model.doSetData(mi, self.new_val, self.role)
 
     def undo(self):
-      self.model.doSetData(self.mi, self.old_val, self.role)
+      mi = self.model.persistentToIndex(self.mi)
+      self.model.doSetData(mi, self.old_val, self.role)
       
   def __init__(self, stack:QUndoStack, *args, **kwargs):
     super().__init__(*args, **kwargs)
     self.undoStack = stack
+
+  def indexToPersistent(self, mi:QModelIndex):
+    raise NotImplementedError()
+
+  def persistentToIndex(self, p):
+    raise NotImplementedError()
     
   def setData(self, mi:QModelIndex, val, role:int):
     cmd = self.ModelEditCommand(self, mi, val, role)
@@ -239,6 +249,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
         data=None,
         box=box,
       )
+      self.setText(f'Add qrc')
 
     def redo(self):
       self.obj = self.model._commit(self.parent_mi, self.row, (self.obj,), invalidate_im = True)[0]
@@ -260,6 +271,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       self.row = row
       l = model.dbw.qrc(key.id)
       self.objs = l[row:row+count]
+      self.setText(f'Remove qrc')
 
     def redo(self):
       self.model._remove(self.parent_mi, self.row, self.objs, invalidate_im = True)
@@ -324,6 +336,18 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
     if key.kind == self.Im :
       return self.createIndex(row, column, self._hold(self.Qrc, self.dbw.getQrc(key.id, row).id, row, key))
     return QModelIndex()
+
+  def indexToPersistent(self, mi:QModelIndex):
+    if mi == rootmi :
+      return None
+    key = mi.internalPointer() # type: _ModelNode
+    return (key.kind, key.id)
+  
+  def persistentToIndex(self, p):
+    if p is None :
+      return rootmi
+    key = self._nodes[p]
+    return self.createIndex(key.row, 0, key)
   
   @ic_indent
   def rowCount(self, parent=QModelIndex()):
@@ -455,7 +479,6 @@ class QRCFixer(QWidget):
   
   """
   
-  stmt_sel_qrc = sa.select(C).where(C.img_id == sa.bindparam('im_id'))
   def _qtinit(self):
     self.app = QApplication([])
     super().__init__()
@@ -491,8 +514,9 @@ class QRCFixer(QWidget):
     self.item_im = QGraphicsPixmapItem() # type:QGraphicsPixmapItem
     self.scene.addItem(self.item_im)
     
-    
     self.qrcBuilder = QRCBuilder(self.scene, self.undoStack, self.tree_model)
+
+    self.detectWidget = QRCDetectWidget()
 
     self.ui.view.noMoveClick.connect(self.noMoveClick)
 
@@ -509,6 +533,9 @@ class QRCFixer(QWidget):
     self.qrcBuilder.deactivated.connect(self.onQrcBuilderDeactivated)
     self.qrc_selection.currentChanged.connect(self.onCurrentQrcChanged)
     self.qrc_selection.currentChanged.connect(self.handleDelQrcState)
+
+    self.ui.qrc_detect.toggled.connect(self.detectWidget.setVisible)
+    self.tree_model.dataChanged.connect(self.changeDetectBox)
 
     self.ui.qrc_del.clicked.connect(self.removeQrc)
 
@@ -574,6 +601,7 @@ class QRCFixer(QWidget):
   def loadIm(self, mi:QModelIndex):
     im = self.tree_model.data(mi, QRCTreeModel.DBRole)
     self.item_im.setPixmap(QPixmap(im.image))
+    self.detectWidget.setIm(im.image)
 
   @Slot(QModelIndex)
   def cleanQrcBuilder(self, mi:QModelIndex):
@@ -584,6 +612,29 @@ class QRCFixer(QWidget):
   def onCurrentQrcChanged(self, mi:QModelIndex):
     if mi != rootmi :
       self.qrcBuilder.deactivate()
+      box = self.tree_model.data(mi, QRCTreeModel.PolygonRole)
+      self.detectWidget.setBox(box)
+    else :
+      self.detectWidget.setBox(None)
+      
+  @Slot(QModelIndex, QModelIndex, 'QList<int>')
+  def changeDetectBox(self, topleft:QModelIndex, botright:QModelIndex, roles:list[int]) :
+    if QRCTreeModel.PolygonRole not in roles :
+      return
+    current_qrc_mi = self.qrc_selection.currentIndex()
+    if current_qrc_mi == rootmi :
+      return
+    
+    current_im_mi = self.im_selection.currentIndex()
+    if topleft.parent() != current_im_mi :
+      return
+
+    if not (topleft.row() <= current_qrc_mi.row() <= botright.row()) :
+      return
+
+    box = self.tree_model.data(current_qrc_mi, QRCTreeModel.PolygonRole)
+    self.detectWidget.setBox(box)
+
   
 
   @Slot(QPointF)
@@ -739,15 +790,17 @@ class QRCBoxes(HandlerManager):
         
 
   @Slot(QModelIndex)
-  def setRootIndex(self, mi:QModelIndex):
-    if mi == self.parent_mi :
+  def setRootIndex(self, parent_mi:QModelIndex):
+    if parent_mi == self.parent_mi :
       return
-    self.parent_mi = mi
+    self.parent_mi = parent_mi
     self.changeCurrent(rootmi, self.current)
-    qrc_count = self.tree_model.rowCount(mi)
-    indices = [ self.tree_model.index(row, 0, mi) for row in range(qrc_count) ]
     for p in self.polys :
       self.scene.removeItem(p)
+    qrc_count = self.tree_model.rowCount(parent_mi)
+    if qrc_count == 0 :
+      return
+    indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(qrc_count) ]
     self.polys = [ self.PolygonItem(self, mi) for mi in indices ]
     for p in self.polys :
       self.scene.addItem(p)
@@ -761,7 +814,7 @@ class QRCBoxes(HandlerManager):
     if self.current != rootmi and self.current.row() >= first:
       self.current = self.tree_model.index(self.current.row() + last - first, 0, parent_mi)
     indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(first, len(self.polys) + last - first) ]
-    n_polys = [ self.PolygonItem(self, parent_mi) for parent_mi in indices[:last - first] ]
+    n_polys = [ self.PolygonItem(self, mi) for mi in indices[:last - first] ]
     self.polys[first:first] = n_polys
     self.boxes[first:first] = [None] * len(n_polys)
     for p in n_polys :
@@ -810,6 +863,7 @@ class QRCBuilder(HandlerManager, QObject):
       super().__init__()
       self.builder = builder
       self.pos = pos
+      self.setText('Add Handle')
 
     def redo(self):
       h = Handle(self.builder, len(self.builder.handles))
@@ -833,6 +887,7 @@ class QRCBuilder(HandlerManager, QObject):
       self.builder = builder
       self.parent_mi = self.builder.parent_mi
       self.positions = [ QPointF(h.pos()) for h in self.builder.handles ]
+      self.setText('Clear Handles')
 
     def redo(self):
       for h in self.builder.handles :
@@ -864,6 +919,8 @@ class QRCBuilder(HandlerManager, QObject):
       box = [ [ (_pos:=h.pos()).x(), _pos.y()] for h in self.builder.handles ]
       box.append([pos.x(), pos.y()])
       self.commit_cmd = self.builder.model.AddQrcCmd(self.builder.model, self.builder.parent_mi, box)
+      self.setText('Commit qrc')
+      
 
     def redo(self):
       self.clear.redo()
@@ -883,6 +940,7 @@ class QRCBuilder(HandlerManager, QObject):
       self.ind = ind
       self.src = src
       self.dst = None
+      self.setText('Move handle')
 
     def redo(self):
       self.builder.handles[self.ind].setPos(self.dst)
@@ -900,6 +958,7 @@ class QRCBuilder(HandlerManager, QObject):
       super().__init__()
       self.builder = builder
       self.parent_mi = parent_mi
+      self.setText('StartAdd qrc')
 
     def redo(self):
       self.builder._active = True

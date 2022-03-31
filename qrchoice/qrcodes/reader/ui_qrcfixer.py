@@ -25,7 +25,7 @@ class Ui_QRCFixer(object):
     def setupUi(self, QRCFixer):
         if not QRCFixer.objectName():
             QRCFixer.setObjectName(u"QRCFixer")
-        QRCFixer.resize(667, 875)
+        QRCFixer.resize(1200, 800)
         icon = QIcon(QIcon.fromTheme(u"applications-development"))
         QRCFixer.setWindowIcon(icon)
         self.horizontalLayout_3 = QHBoxLayout(QRCFixer)
@@ -102,6 +102,7 @@ class Ui_QRCFixer(object):
         self.qrc_detect.setObjectName(u"qrc_detect")
         icon3 = QIcon(QIcon.fromTheme(u"zoom-next"))
         self.qrc_detect.setIcon(icon3)
+        self.qrc_detect.setCheckable(True)
 
         self.horizontalLayout_2.addWidget(self.qrc_detect)
 
