@@ -9,7 +9,7 @@ from PySide6.QtWidgets import (
     QGraphicsSceneMouseEvent,
 )
 from PySide6.QtGui import (
-    QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon, QPainterPath
+    QPixmap, QPolygonF, QUndoCommand, QUndoStack, QIcon, QPainterPath, QBrush, QColor
 )
 from PySide6.QtCore import (
     Qt,Slot, Signal, QObject,
@@ -716,6 +716,7 @@ class QRCBoxes(HandlerManager):
       super().__init__(*args, **kwargs)
       self.qrcBoxes = qrcBoxes
       self.mi = mi
+      self.setBrush(QBrush(QColor(0x00, 0x88, 0xff, 0x55)))
       
     def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
       super().mousePressEvent(ev)
