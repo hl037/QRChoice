@@ -32,7 +32,7 @@ class _QRCDetectionRun(ReprMixin):
   __tablename__ = '_qrc_detection_run'
   
   id = sa.Column(sa.Integer, primary_key=True)
-  data = sa.Column(sa.Text, index=True)
+  data = sa.Column(sa.JSON, index=True) # [(table_name, [(field, value)...].ordered), ...]
 
 @_InternalRegistery.mapped
 class _QRCDetectionImg(ReprMixin):

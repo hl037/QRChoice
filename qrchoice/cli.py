@@ -119,6 +119,7 @@ def layoutImg(dbpath, table, output, longside, layout):
 @click.argument('paths', type=str, nargs=-1)
 @click.option('--table', '-t', type=str, multiple=True, help="passed as : --table=table:column=value:...")
 @click.option('--id', '-i', type=str, default=None)
+@dbg_wrap
 def readQrc(dbpath, paths, table, id):
   from . import database
   from .qrcodes.reader import parseTable, zbarReader, QRChoiceRun, imGenerator
@@ -138,6 +139,7 @@ def readQrc(dbpath, paths, table, id):
 
 @main.command(name='browse-db')
 @click.argument('dbpath', type=str, nargs=1)
+@dbg_wrap
 def browseDb(dbpath):
   from . import database
   from .qrcodes.reader.gui import QRCTreeModel
@@ -166,18 +168,23 @@ def testGui(dbpath):
   gui = QRCFixer(db)
   gui.exec()
 
-from .qrcodes.reader.gui import *
-@main.command(name='ttt')
-def ttt():
-  app = QApplication()
-  scene = QGraphicsScene()
-  view = QGraphicsView()
-  view.setScene(scene)
-  h = QRCBoxes.Handle(None, None)
-  scene.addItem(h)
-  view.show()
-  app.exec()
-  
+@main.command(name='redispatch-all')
+@click.argument('dbpath', type=str, nargs=1)
+@dbg_wrap
+def redispatchAll(dbpath):
+  import sqlalchemy as sa
+  from . import database
+  from .database import _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
+  from .qrcodes.reader import QRChoiceRun
+  db = database.DB.fromDB(database.engineFromPath(dbpath))
+  with db.session() as S :
+    res = S.scalars(sa.select(R)).all()
+    for r in res:
+      run = QRChoiceRun(db, r)
+      imgs = list(S.scalars(sa.select(I.id).where(I.run_id == r.id)).all())
+      run.dispatch(S, imgs)
+      S.commit()
+
 
 if __name__ == "__main__" :
   main()

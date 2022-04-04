@@ -8,7 +8,7 @@ Call = common.ExpressionParser.Call
 class TemplateParserError(RuntimeError):
   pass
 
-def parseArity(arity):
+def parseArity(arity) -> tuple[int, int]:
   if '..' in arity :
     res = tuple( (float(int(s)) if (s := a.strip()) not in 'nN*' else float('+inf')) for a in arity.split('..') )
     if len(res) != 2 :
@@ -22,9 +22,13 @@ def parseArity(arity):
       return a, a
   
 class TemplateParser(common.ExpressionParser):
+  ignored = [' ', '\t']
   list_delimiters = [(':', 0), (',', 1)]
 
-  def parse(self, template_def):
+  def parse(self, template_def) -> dict[str, tuple[int, int]]:
+    """
+    Parse the template, and return the arity of each fields {field_name: (min, max)}
+    """
     t = super().parse(template_def)
     match t :
       case (str() as cols) | List(',', cols) :

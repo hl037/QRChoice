@@ -61,7 +61,8 @@ class Config(object):
     self.cwd = cwd
     self.sa_model = None # type: sa.MetaData
     self.values = {} # type: dict[str, TableValues]
-    self.qrchoices = {}
+    # { qrchoice_table_name : (table, { field_name: (arity_min, arity_max) }) }
+    self.qrchoices = {} # type: dict[str, tuple[sa.Table, dict[str, tuple[int, int]]]]
     self._after_hooks = []
 
   @property

@@ -1,3 +1,4 @@
+from functools import reduce
 from dataclasses import dataclass
 from collections import defaultdict
 from . import common
@@ -52,7 +53,7 @@ class ColumnParser(common.ExpressionParser):
   """
   Parse table column definitions
   """
-  ignored = [' ']
+  ignored = [' ', '\t']
   list_delimiters = [('.', 0), (':', 10), (',', 20)]
   group_delimiters = [('(', ')')]
 
@@ -70,13 +71,55 @@ class EntrySet(object):
   Represent a table property that is a set using an mid table as join.
   """
   name: str
-  src_name: sa.Table
-  target_name: sa.Table
-  mid_name: sa.Table = None
+  src_name: str
+  target_name: str
   src: sa.Table = None
   target: sa.Table = None
   mid: sa.Table = None
+
+  def target_col_names(self):
+    t = self.target
+    return [ (f'{t.name}_{col.name}', col.name) for col in t.primary_key ]
     
+  def src_col_names(self):
+    t = self.src
+    return [ (f'{t.name}_{col.name}', col.name) for col in t.primary_key ]
+
+  @property
+  def mid_name(self):
+    return f'_{self.src_name}_x_{self.target_name}'
+
+  @property
+  def src_fk_name(self):
+    return f'fk_{self.src_name}'
+  
+  @property
+  def target_fk_name(self):
+    return f'fk_{self.target_name}'
+
+  def src_fk_cols(self):
+    return tuple( self.mid.c[col_name] for col_name, _ in self.src_col_names() )
+  
+  def target_fk_cols(self):
+    return tuple( self.mid.c[col_name] for col_name, _ in self.target_col_names() )
+
+  def src_pk_cond(self, *values):
+    t = self.src
+    return reduce(lambda x, y: x & y, ( c == v for c, v in zip(self.src_fk_cols(), values) ))
+  
+  def target_pk_cond(self, *values):
+    t = self.target
+    return reduce(lambda x, y: x & y, ( c == v for c, v in zip(self.target_fk_cols(), values) ))
+
+  def populate_src(self, obj, *values):
+    for (col_name, _), v in zip(self.src_col_names(), values) :
+      obj[col_name] = v
+    return obj
+      
+  def populate_target(self, obj, *values):
+    for (col_name, _), v in zip(self.target_col_names(), values) :
+      obj[col_name] = v
+    return obj
 
 
 def parseColumn(c, fks, uniques, sets):
@@ -145,7 +188,7 @@ def addTable(c: common.Config, table_name:str, col_defs:str):
   cols = parser.parse(col_defs)
   fks = {}
   uniques = {}
-  sets = {}
+  sets = {} # type: dict[str, EntrySet]
   args = [ col for cdef in cols if (col := parseColumn(cdef, fks, uniques, sets)) is not None ]
   if not any( col.primary_key for col in args ) :
     args.insert(0, sa.Column('id', sa.Integer, primary_key=True))
@@ -155,7 +198,7 @@ def addTable(c: common.Config, table_name:str, col_defs:str):
       *args,
       *( sa.ForeignKeyConstraint(*zip(*fk), name) for fk_id, (im, target, _) in fks.items() if im ),
   )
-  t.sets = sets
+  t.sets = sets # type: dict[str, EntrySet]
   t.delayed_fks = [ (fk_id, target) for fk_id, (im, target, _) in fks.items() if not im ]
   t.delayed_uniques = uniques
   c._explicit_tables.append(table_name)
@@ -171,22 +214,27 @@ def postProcessTable(c: common.Config):
       S.src = t1
       t2 = c.tables[t2name]
       S.target = t2
-      S.mid_name = f'_{t1name}_x_{t2name}'
       S.mid = sa.Table(
         S.mid_name,
         c.sa_model,
         *(
-            sa.Column(f'{t.name}_{col.name}', None)
-          for t in (t1, t2) for col in t.primary_key
+          sa.Column(colname, None)
+          for colname, _ in S.src_col_names()
         ),
         *(
-            sa.ForeignKeyConstraint(
-              [ f'{t.name}_{col.name}' for col in t.primary_key ],
-              [ f'{t.name}.{col.name}' for col in t.primary_key ],
-              name = f'fk_{t.name}'
-            )
-          for t in (t1, t2)
-        )
+          sa.Column(colname, None)
+          for colname, _ in S.target_col_names()
+        ),
+        sa.ForeignKeyConstraint(
+          [ colname for colname, _ in S.src_col_names() ],
+          [ f'{S.src_name}.{src_colname}' for _, src_colname in S.src_col_names() ],
+          name = S.src_fk_name
+        ),
+        sa.ForeignKeyConstraint(
+          [ colname for colname, _ in S.target_col_names() ],
+          [ f'{S.target_name}.{target_colname}' for _, target_colname in S.target_col_names() ],
+          name = S.target_fk_name
+        ),
       )
     for fk_id, target in t1.delayed_fks :
       t2 = c.tables[target] # type: sa.Table
