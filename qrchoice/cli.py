@@ -122,7 +122,8 @@ def layoutImg(dbpath, table, output, longside, layout):
 @dbg_wrap
 def readQrc(dbpath, paths, table, id):
   from . import database
-  from .qrcodes.reader import parseTable, zbarReader, QRChoiceRun, imGenerator
+  from .qrcodes.reader import parseTable, zbarReader, QRChoiceRun
+  from .images import imGenerator
 
   db = database.DB.fromDB(database.engineFromPath(dbpath))
   tables = [ parseTable(t) for t in table ]
@@ -133,7 +134,7 @@ def readQrc(dbpath, paths, table, id):
   def progress(i, j):
     click.echo(f'{50*(i+j/len_paths):>2.2f}%\r', nl=False)
   with db.session() as S :
-    qrc_run.update_imgs(S, paths, map(zbarReader.readQRCodes, im_gen), progress_cb=progress)
+    qrc_run.update_imgs(S, map(Path, paths), map(zbarReader.readQRCodes, im_gen), progress_cb=progress)
     S.commit()
   print()
 
@@ -184,6 +185,30 @@ def redispatchAll(dbpath):
       imgs = list(S.scalars(sa.select(I.id).where(I.run_id == r.id)).all())
       run.dispatch(S, imgs)
       S.commit()
+
+@main.command(name='im-enhance')
+@click.option('--filters', '-f', type=str)
+@click.option('--output', '-o', type=click.Path( file_okay=False, dir_okay=True, resolve_path=True))
+@click.argument('paths', type=str, nargs=-1)
+def imEnhance(filters, output:Path, paths):
+  """
+  Apply filters to images to enhane them
+  """
+  from . import im_enhancer as ih
+  f = { _f.short_name : _f for _f in ih.imfilters }
+  im_filter = ih.FilterQueue( f[k] for k in filters.split() )
+  from .images import imGenerator
+  im_gen = imGenerator(paths)
+  def progress(i, j):
+    click.echo(f'{100*(i/j):>2.2f}%\r', nl=False)
+
+  output = Path(output)
+  output.mkdir(parents=True, exist_ok=True)
+  for i, (im, p) in enumerate(zip(im_gen, map(Path, paths))) :
+    im_ = im_filter.cb(im)
+    im_.save(output / p.name)
+    progress(i, len(paths))
+  
 
 
 if __name__ == "__main__" :

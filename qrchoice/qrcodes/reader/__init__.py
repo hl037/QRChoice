@@ -3,7 +3,6 @@ import json
 from contextlib import contextmanager
 from pathlib import Path
 from typing import Sequence as Seq
-from PIL import Image
 
 import sqlalchemy as sa
 
@@ -31,15 +30,6 @@ def parseTable(s:str) -> tuple[str, TableRunFieldValues]:
   table, *fields = map(str.strip, s.split(':'))
   return table, [ tuple(map(str.strip, _s.split('='))) for _s in fields ]
 
-def imGenerator(paths):
-  """
-  This image generator closes the file after each read
-  """
-  for p in paths :
-    with Image.open(p) as im :
-      yield im
-    
-  
 
 class MissingTableFields(RuntimeError):
   def __init__(self, entry, d1, d2):
@@ -135,20 +125,21 @@ class QRChoiceRun(object):
     Add or update the image bounding box. Only add boxes, don't remove.
     """
     rid = self.run.id
-    im_ids = []
-    stmt_im_sel = sa.select(I).where((I.image == sa.bindparam('im')) & (I.run_id == rid))
+    im_ids = [] # type: list[tuple[int, bool] # pk, is new
+    stmt_im_sel = sa.select(I).where((I.image_name == sa.bindparam('im_name')) & (I.run_id == rid))
     stmt_im_ins = sa.insert(I)
     for i, p in enumerate(img_paths) :
       p_s = str(p)
-      imgs = S.scalars(stmt_im_sel, {'im': p_s}).all()
+      name = p.name
+      imgs = S.scalars(stmt_im_sel, {'im_name': name}).all()
       assert len(imgs) <= 1
       if len(imgs) == 1 :
-        im_ids.append(imgs[0].id, False)
+        im_ids.append((imgs[0].id, False))
       else :
-        im_ids.append(
-          S.execute(stmt_im_ins, {'run_id': rid, 'image': p_s}).inserted_primary_key[0],
+        im_ids.append((
+          S.execute(stmt_im_ins, {'run_id': rid, 'image': p_s, 'image_name': name}).inserted_primary_key[0],
           True
-        )
+        ))
       progress_cb(0, i)
     S.flush()
     stmt_qrc_data_sel = sa.select(C.data).where(C.img_id == sa.bindparam('im'))
@@ -163,7 +154,7 @@ class QRChoiceRun(object):
         to_dispatch.append(im_id)
       S.execute(stmt_qrc_ins, to_insert)
       S.flush()
-    self.dispatch(to_dispatch)
+    self.dispatch(S, to_dispatch)
 
   def dispatch(self, S:sa.orm.Session, im_ids:list[int]):
     """
@@ -181,7 +172,7 @@ class QRChoiceRun(object):
       target, target_id = S.execute(stmt_target_sel, {'im_id': im_id}).one()
       data = S.scalars(stmt_qrcdata_sel, {'im_id': im_id}).all()
       filtered = dict()
-      for table, id in (d.split(':') for d in data) :
+      for table, id in ( v for v in (d.split(':') for d in data) if len(v) == 2 ) :
         filtered.setdefault(table, []).append(id)
       # match target
       new_target = None
@@ -237,16 +228,18 @@ class QRChoiceRun(object):
       table, qrchoice = self.qrchoices[target]
       data = set(S.scalars(stmt_sel_qrcdata, {'target':target, 'target_id': target_id}).all())
       filtered = dict()
-      for field_name, id in (d.split(':') for d in data) :
+      for field_name, id in ( v for v in (d.split(':') for d in data) if len(v) == 2) :
         filtered.setdefault(field_name, []).append(id)
       obj_dict = dict(self.default_values[target])
       sets = [] # type: list[tuple[EntrySet, list[int]]]
+      do_update = True
       for k, v in filtered.items() :
         if k not in table.sets :
           if not k in table.c :
             k = next(iter(table.fks[k].columns.values())).name # change for supporting composite pk
-          v, = v
-          obj_dict[k] = v
+          if len(v) == 1 :
+            v, = v
+            obj_dict[k] = v
         else :
           sets.append((table.sets[k],  v))
       # Update main object

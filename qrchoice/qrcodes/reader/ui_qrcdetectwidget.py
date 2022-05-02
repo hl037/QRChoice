@@ -3,7 +3,7 @@
 ################################################################################
 ## Form generated from reading UI file 'ui_qrcdetectwidget.ui'
 ##
-## Created by: Qt User Interface Compiler version 6.2.4
+## Created by: Qt User Interface Compiler version 6.3.0
 ##
 ## WARNING! All changes made in this file will be lost when recompiling UI file!
 ################################################################################
@@ -48,14 +48,26 @@ class Ui_QRCDetectWidget(object):
 
         self.remFilter = QToolButton(QRCDetectWidget)
         self.remFilter.setObjectName(u"remFilter")
-        icon = QIcon(QIcon.fromTheme(u"list-remove"))
+        icon = QIcon()
+        iconThemeName = u"list-remove"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon = QIcon.fromTheme(iconThemeName)
+        else:
+            icon.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
         self.remFilter.setIcon(icon)
 
         self.horizontalLayout_3.addWidget(self.remFilter)
 
         self.clearFilters = QToolButton(QRCDetectWidget)
         self.clearFilters.setObjectName(u"clearFilters")
-        icon1 = QIcon(QIcon.fromTheme(u"edit-clear"))
+        icon1 = QIcon()
+        iconThemeName = u"edit-clear"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon1 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon1.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
         self.clearFilters.setIcon(icon1)
 
         self.horizontalLayout_3.addWidget(self.clearFilters)
@@ -97,6 +109,27 @@ class Ui_QRCDetectWidget(object):
 
         self.verticalLayout.addLayout(self.horizontalLayout)
 
+        self.horizontalLayout_4 = QHBoxLayout()
+        self.horizontalLayout_4.setObjectName(u"horizontalLayout_4")
+        self.filterArgs = QLabel(QRCDetectWidget)
+        self.filterArgs.setObjectName(u"filterArgs")
+        self.filterArgs.setTextInteractionFlags(Qt.LinksAccessibleByMouse|Qt.TextSelectableByMouse)
+
+        self.horizontalLayout_4.addWidget(self.filterArgs)
+
+        self.copyArgs = QPushButton(QRCDetectWidget)
+        self.copyArgs.setObjectName(u"copyArgs")
+        sizePolicy2 = QSizePolicy(QSizePolicy.Maximum, QSizePolicy.Fixed)
+        sizePolicy2.setHorizontalStretch(0)
+        sizePolicy2.setVerticalStretch(0)
+        sizePolicy2.setHeightForWidth(self.copyArgs.sizePolicy().hasHeightForWidth())
+        self.copyArgs.setSizePolicy(sizePolicy2)
+
+        self.horizontalLayout_4.addWidget(self.copyArgs)
+
+
+        self.verticalLayout.addLayout(self.horizontalLayout_4)
+
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
         self.horizontalLayout_2.setSizeConstraint(QLayout.SetDefaultConstraint)
@@ -106,14 +139,26 @@ class Ui_QRCDetectWidget(object):
 
         self.detect = QPushButton(QRCDetectWidget)
         self.detect.setObjectName(u"detect")
-        icon2 = QIcon(QIcon.fromTheme(u"zoom-next"))
+        icon2 = QIcon()
+        iconThemeName = u"zoom-next"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon2 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon2.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
         self.detect.setIcon(icon2)
 
         self.horizontalLayout_2.addWidget(self.detect)
 
         self.apply = QPushButton(QRCDetectWidget)
         self.apply.setObjectName(u"apply")
-        icon3 = QIcon(QIcon.fromTheme(u"dialog-ok-apply"))
+        icon3 = QIcon()
+        iconThemeName = u"dialog-ok-apply"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon3 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon3.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
         self.apply.setIcon(icon3)
 
         self.horizontalLayout_2.addWidget(self.apply)
@@ -132,7 +177,9 @@ class Ui_QRCDetectWidget(object):
         self.imViewer.setText("")
         self.remFilter.setText("")
         self.clearFilters.setText("")
-        self.info.setText(QCoreApplication.translate("QRCDetectWidget", u"test", None))
+        self.info.setText("")
+        self.filterArgs.setText("")
+        self.copyArgs.setText(QCoreApplication.translate("QRCDetectWidget", u"Copy", None))
         self.detect.setText(QCoreApplication.translate("QRCDetectWidget", u"Detect", None))
         self.apply.setText(QCoreApplication.translate("QRCDetectWidget", u"Apply", None))
     # retranslateUi

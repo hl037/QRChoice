@@ -16,12 +16,12 @@ from PySide6.QtCore import (
     QAbstractItemModel, QModelIndex, QItemSelectionModel, QAbstractListModel
 )
 
-import PIL
-from PIL import Image, ImageOps, ImageEnhance
+from PIL import Image
 from PIL.ImageQt import ImageQt
 import pillowOkularViewer
 
 from . import zbarReader
+from ...im_enhancer import imfilters, ImFilter, FilterQueue
 
 from .ui_qrcdetectwidget import Ui_QRCDetectWidget
 
@@ -59,6 +59,22 @@ def extractArea(im:Image, points:np.ndarray):
   return im.transform((ml, ml), Image.QUAD, points.ravel())
 
 
+class ImFilterObject(object):
+  """
+  Wrapper around ImFilter
+  """
+  def __init__(self, target:ImFilter):
+    self.target = target
+    addHandler = None # type:  AddFilterHandler
+
+  @Slot()
+  def add(self):
+    if self.addHandler is not None :
+      self.addHandler.addFilter(self.target)
+
+imfilterObjects = [ ImFilterObject(f) for f in imfilters ]
+
+
 class AddFilterHandler(object):
   def addFilter(self, f):
     raise NotImplementedError()
@@ -84,6 +100,7 @@ class QRCDetectWidget(AddFilterHandler, QWidget):
 
     self.ui.detect.clicked.connect(self.detect)
     self.ui.apply.clicked.connect(self.apply)
+    self.ui.copyArgs.clicked.connect(self.copyFilterArgs)
     
     self.ui.filterView.setModel(self.filtersModel)
     self.ui.remFilter.clicked.connect(self.removeFilter)
@@ -94,9 +111,9 @@ class QRCDetectWidget(AddFilterHandler, QWidget):
     
     self.filterButtons = []
 
-    for f in imfilters :
+    for f in imfilterObjects :
       pb = QPushButton()
-      pb.setText(f.name)
+      pb.setText(f.target.name)
       self.ui.filterButtons.addWidget(pb)
       f.addHandler = self
       pb.clicked.connect(f.add)
@@ -126,9 +143,15 @@ class QRCDetectWidget(AddFilterHandler, QWidget):
 
   @Slot()
   def filter(self):
-    self._filtered = reduce(lambda x, f: f.cb(x), self.filtersModel.filterList, self._base_extracted)
+    args = ' '.join(f.short_name for f in self.filtersModel.filterList)
+    self.ui.filterArgs.setText(f'qrchoice im-enhance -f "{args}"')
+    self._filtered = FilterQueue.reduce(self.filtersModel.filterList, self._base_extracted)
     res = self.pixmap.convertFromImage(ImageQt(self._filtered))
     self.ui.imViewer.setPixmap(self.pixmap)
+
+  @Slot()
+  def copyFilterArgs(self):
+    QApplication.clipboard().setText(self.ui.filterArgs.text())
 
   dataApplied = Signal(str)
 
@@ -167,94 +190,7 @@ class QRCDetectWidget(AddFilterHandler, QWidget):
 rootmi = QModelIndex()
 
 
-class ImFilter(object):
-  """
-  Image filter
-  """
-  name = ''
-  addHandler = None # type:  AddFilterHandler
 
-  def cb(self, im:Image):
-    raise NotImplementedError()
-
-  @Slot()
-  def add(self):
-    if self.addHandler is not None :
-      self.addHandler.addFilter(self)
-
-    
-
-imfilters = [] # type: list[ImFilter]
-
-def registerImFilter(C):
-  imfilters.append(C())
-  return C
-
-@registerImFilter
-class ContrastMore(ImFilter):
-  """
-  Add contrast
-  """
-
-  name = 'contrast *= 1.2'
-  def cb(self, im:Image):
-    en = ImageEnhance.Contrast(im)
-    return en.enhance(1.2)
-  
-@registerImFilter
-class ContrastLess(ImFilter):
-  """
-  Add contrast
-  """
-
-  name = 'contrast *= 0.8'
-  def cb(self, im:Image):
-    en = ImageEnhance.Contrast(im)
-    return en.enhance(0.8)
-    
-@registerImFilter
-class BrightnessMore(ImFilter):
-  """
-  Decrease brightness
-  """
-
-  name = 'brightness *= 1.2'
-  def cb(self, im:Image):
-    en = ImageEnhance.Brightness(im)
-    return en.enhance(1.2)
-  
-@registerImFilter
-class BrightnessLess(ImFilter):
-  """
-  Add brightness
-  """
-
-  name = 'brightness *= 0.8'
-  def cb(self, im:Image):
-    en = ImageEnhance.Brightness(im)
-    return en.enhance(0.8)
-  
-@registerImFilter
-class SharpnessMore(ImFilter):
-  """
-  Decrease sharpness
-  """
-
-  name = 'sharpness *= 1.2'
-  def cb(self, im:Image):
-    en = ImageEnhance.Sharpness(im)
-    return en.enhance(1.2)
-  
-@registerImFilter
-class SharpnessLess(ImFilter):
-  """
-  Decrease sharpness
-  """
-
-  name = 'sharpness *= 0.8'
-  def cb(self, im:Image):
-    en = ImageEnhance.Sharpness(im)
-    return en.enhance(0.8)
     
 
 class FiltersModel(QAbstractListModel):

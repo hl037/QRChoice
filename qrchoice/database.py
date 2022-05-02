@@ -39,7 +39,8 @@ class _QRCDetectionImg(ReprMixin):
   __tablename__ = '_qrc_detection_img'
   id = sa.Column(sa.Integer, primary_key=True)
   run_id = sa.Column(sa.ForeignKey(_QRCDetectionRun.id), index=True)
-  image = sa.Column(sa.String(256), unique=True)
+  image = sa.Column(sa.String(256))
+  image_name = sa.Column(sa.String(256), unique=True)
   target = sa.Column(sa.String(128))
   target_id = sa.Column(sa.Integer)
   

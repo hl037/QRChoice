@@ -52,7 +52,8 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="list-remove"/>
+            <iconset theme="list-remove">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>
@@ -62,7 +63,8 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="edit-clear"/>
+            <iconset theme="edit-clear">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>
@@ -100,11 +102,38 @@
           </size>
          </property>
          <property name="text">
-          <string>test</string>
+          <string/>
          </property>
         </widget>
        </item>
       </layout>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayout_4">
+     <item>
+      <widget class="QLabel" name="filterArgs">
+       <property name="text">
+        <string/>
+       </property>
+       <property name="textInteractionFlags">
+        <set>Qt::LinksAccessibleByMouse|Qt::TextSelectableByMouse</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="copyArgs">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Maximum" vsizetype="Fixed">
+         <horstretch>0</horstretch>
+         <verstretch>0</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="text">
+        <string>Copy</string>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>
@@ -132,7 +161,8 @@
         <string>Detect</string>
        </property>
        <property name="icon">
-        <iconset theme="zoom-next"/>
+        <iconset theme="zoom-next">
+         <normaloff>.</normaloff>.</iconset>
        </property>
       </widget>
      </item>
@@ -142,7 +172,8 @@
         <string>Apply</string>
        </property>
        <property name="icon">
-        <iconset theme="dialog-ok-apply"/>
+        <iconset theme="dialog-ok-apply">
+         <normaloff>.</normaloff>.</iconset>
        </property>
       </widget>
      </item>
