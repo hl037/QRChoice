@@ -17,461 +17,14 @@ from PySide6.QtCore import (
     QAbstractItemModel, QModelIndex, QPersistentModelIndex, QItemSelectionModel,
 )
 
-from ...database import DB, _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
 from .areadetect import QRCDetectWidget
+from .qrc_tree_model import *
 
 from .ui_qrcfixer import Ui_QRCFixer
 
-from icecream import ic
-import traceback
-
-base_prefix = 'ic> '
-ic.prefix = base_prefix
-
-ic_indent_level = 0
-
-def ic_indent(f):
-  @wraps(f)
-  def _f(*args, **kwargs):
-    global ic_indent_level
-    old = ic.prefix
-    ic(f.__name__)
-    ic_indent_level += 1
-    ic.prefix = '|  ' * ic_indent_level + ic.prefix
-    try :
-      return f(*args, **kwargs)
-    finally :
-      ic_indent_level -= 1
-      ic.prefix = old
-      print(ic.prefix[:-len(base_prefix)])
-  return f
-  #return _f
+from ...debug_utils import *
 
 
-def dicho(l, e, cmp):
-  """
-  Perform dichotomic search and return index of element just after
-  """
-  i = 0
-  j = len(l)
-  while i != j :
-    k = (i + j) // 2
-    c = cmp(l[k], e)
-    if c == 0 :
-      return k
-    if c < 0 :
-      i = k + 1
-    else :
-      j = k
-  return i
-
-
-class DBWrapper(object):
-  """
-  A DB Wrapper to implement later smarter cache to avoid to much requests
-  """
-  stmt_run_sel = sa.select(R)
-  stmt_im_sel = sa.select(I).where(I.run_id == sa.bindparam('run_id'))
-  stmt_qrc_sel = sa.select(C).where(C.img_id == sa.bindparam('im_id'))
-  
-  def __init__(self, db:DB):
-    self.db = db
-    self.cur_run = None
-    self.cur_im = None
-    self._run = None
-    self._im = None
-    self._qrc = None
-
-  def run(self):
-    if self._run is None :
-      with self.db.session() as S :
-        self._run = S.scalars(self.stmt_run_sel).all()
-    return self._run
-    
-  def im(self, run_id):
-    if self.cur_run != run_id :
-      self.cur_run = run_id
-      with self.db.session() as S :
-        self._im = S.scalars(self.stmt_im_sel, {'run_id': run_id}).all()
-    return self._im
-
-  def qrc(self, im_id):
-    if self.cur_im != im_id :
-      self.cur_im = im_id
-      with self.db.session() as S :
-        self._qrc = S.scalars(self.stmt_qrc_sel, {'im_id': im_id}).all()
-    return self._qrc
-
-  @ic_indent
-  def runCount(self):
-    return len(self.run())
-
-  @ic_indent
-  def imCount(self, run_id):
-    return len(self.im(run_id))
-
-  @ic_indent
-  def qrcCount(self, im_id):
-    return len(self.qrc(im_id))
-
-  #@ic_indent
-  def getRun(self, ind):
-    return self.run()[ind]
-
-  @ic_indent
-  def getIm(self, run_id, ind):
-    return self.im(run_id)[ind]
-
-  @ic_indent
-  def getQrc(self, im_id, ind):
-    return self.qrc(im_id)[ind]
-
-  @ic_indent
-  def commit(self, objs, invalidate_im=False, invalidate_run=False):
-    with self.db.session() as S :
-      n_objs = [ S.merge(obj) for obj in objs ]
-      S.commit()
-      for obj in n_objs :
-        S.refresh(obj)
-    if invalidate_im :
-      self.cur_im = None
-    if invalidate_run :
-      self.cur_run = None
-    return n_objs
-      
-  @ic_indent
-  def remove(self, objs, invalidate_im=False, invalidate_run=False):
-    with self.db.session() as S :
-      n_objs = [ S.merge(obj) for obj in objs ]
-      for obj in n_objs :
-        S.delete(obj)
-      S.commit()
-    if invalidate_im :
-      self.cur_im = None
-    if invalidate_run :
-      self.cur_run = None
-      
-  
-rootmi = QModelIndex()
-
-@dataclass(frozen=True, slots=True)
-class _ModelNode(object):
-  """
-  Class to hold a node (so that it can be retrieve with the node dict only)
-  """
-  kind: int
-  id: int
-  row: int
-  parent: '_ModelNode'
-
-  def __hash__(self):
-    return hash((self.kind, self.id))
-
-  def __eq__(self, oth):
-    if isinstance(oth, tuple) :
-      kind, id, *_ = oth
-      return self.kind == kind and self.id == id
-    else :
-      return self.kind == oth.kind and self.id == oth.id
-
-
-
-class UndoStackModelMixin(object):
-  """
-  Mixin for handling an undo stack
-  """
-  class ModelEditCommand(QUndoCommand):
-    def __init__(self, model:QAbstractItemModel, mi:QModelIndex, val, role:int):
-      super().__init__()
-      self.model = model
-      self.mi = self.model.indexToPersistent(mi)
-      self.new_val = val
-      self.role = role
-      self.old_val = self.model.data(mi, self.role)
-      self._success = False
-      self.setText(f'db change role: {role}')
-        
-
-    def redo(self):
-      mi = self.model.persistentToIndex(self.mi)
-      self._success = self.model.doSetData(mi, self.new_val, self.role)
-
-    def undo(self):
-      mi = self.model.persistentToIndex(self.mi)
-      self.model.doSetData(mi, self.old_val, self.role)
-      
-  def __init__(self, stack:QUndoStack, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.undoStack = stack
-
-  def indexToPersistent(self, mi:QModelIndex):
-    raise NotImplementedError()
-
-  def persistentToIndex(self, p):
-    raise NotImplementedError()
-    
-  def setData(self, mi:QModelIndex, val, role:int):
-    cmd = self.ModelEditCommand(self, mi, val, role)
-    self.undoStack.push(cmd)
-    if not cmd._success :
-      cmd.setObsolete(True)
-    return cmd._success
-
-  
-  
-  
-class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
-  """
-  Model to display a list of images in a run, the image stored in them, and the qrc found.
-  """
-  Run = 0
-  Im = 1
-  Qrc = 2
-
-  DBRole  = Qt.UserRole + 0
-  PolygonRole = Qt.UserRole + 1
-
-  class AddQrcCmd(QUndoCommand):
-    """
-    Command to add / remove 
-    """
-    def __init__(self, model:'QRCTreeModel', parent_mi:QModelIndex, box):
-      super().__init__()
-      assert parent_mi != rootmi
-      key = parent_mi.internalPointer() # type: _ModelNode
-      assert key.kind == model.Im
-      self.model = model
-      self.parent_mi = parent_mi
-      count = model.dbw.qrcCount(key.id)
-      self.row = count
-      self.obj = C(
-        img_id=key.id,
-        data=None,
-        box=box,
-      )
-      self.setText(f'Add qrc')
-
-    def redo(self):
-      self.obj = self.model._commit(self.parent_mi, self.row, (self.obj,), invalidate_im = True)[0]
-
-    def undo(self):
-      self.model._remove(self.parent_mi, self.row, (self.obj,), invalidate_im = True)
-      
-  class RemQrcCmd(QUndoCommand):
-    """
-    Command to add / remove 
-    """
-    def __init__(self, model:'QRCTreeModel', parent_mi:QModelIndex, row:int, count:int):
-      super().__init__()
-      assert parent_mi != rootmi
-      key = parent_mi.internalPointer() # type: _ModelNode
-      assert key.kind == model.Im
-      self.model = model
-      self.parent_mi = parent_mi
-      self.row = row
-      l = model.dbw.qrc(key.id)
-      self.objs = l[row:row+count]
-      self.setText(f'Remove qrc')
-
-    def redo(self):
-      self.model._remove(self.parent_mi, self.row, self.objs, invalidate_im = True)
-
-    def undo(self):
-      self.objs = self.model._commit(self.parent_mi, self.row, self.objs, invalidate_im = True)
-  
-  def __init__(self, db:DB, *args, **kwargs):
-    super().__init__(*args, **kwargs)
-    self.dbw = DBWrapper(db)
-    self._nodes = dict() # type: dict[_ModelNode, _ModelNode]
-
-  def _hold(self, *args):
-    k = _ModelNode(*args)
-    return self._nodes.setdefault(k, k)
-
-  @ic_indent
-  def hasChildren(self, parent:QModelIndex):
-    return parent == rootmi or parent.internalPointer().kind < self.Qrc
-  
-  @ic_indent
-  def _invalidate(self, parentNode:_ModelNode, start):
-    toInvalidate = [[], [], []]
-    fn = self.dbw.im, self.dbw.qrc
-    if parentNode is None :
-      toInvalidate[0] = [ obj.id for obj in self.dbw.run()[start:] ]
-
-    elif (k := parentNode.kind) == self.Qrc :
-      return
-    
-    else :
-      toInvalidate[k + 1] = [ obj.id for obj in fn[k](parentNode.id)[start:] ]
-
-    for i in range(2) :
-      l = toInvalidate[i]
-      if l :
-        for id in l :
-          del self._nodes[(i, id)]
-          toInvalidate[i + 1].extend(fn[i](id))
-    for id in toInvalidate[-1] :
-      del self._nodes[(2, id)]
-
-  @ic_indent
-  def parent(self, mi: QModelIndex):
-    if mi == rootmi :
-      return QModelIndex()
-    else :
-      key = mi.internalPointer()
-      if isinstance(key, dict) :
-        breakpoint()
-      if key.kind == 0 :
-        return QModelIndex()
-      return self.createIndex(key.parent.row, 0, key.parent) 
-
-  @ic_indent
-  def index(self, row, column, parent=QModelIndex()):
-    if parent == rootmi :
-      return self.createIndex(row, column, self._hold(self.Run, self.dbw.getRun(row).id, row, None))
-    key = parent.internalPointer() # type: _ModelNode
-    if key.kind == self.Run :
-      return self.createIndex(row, column, self._hold(self.Im, self.dbw.getIm(key.id, row).id, row, key))
-    if key.kind == self.Im :
-      return self.createIndex(row, column, self._hold(self.Qrc, self.dbw.getQrc(key.id, row).id, row, key))
-    return QModelIndex()
-
-  def indexToPersistent(self, mi:QModelIndex):
-    if mi == rootmi :
-      return None
-    key = mi.internalPointer() # type: _ModelNode
-    return (key.kind, key.id)
-  
-  def persistentToIndex(self, p):
-    if p is None :
-      return rootmi
-    key = self._nodes[p]
-    return self.createIndex(key.row, 0, key)
-  
-  @ic_indent
-  def rowCount(self, parent=QModelIndex()):
-    if parent == rootmi :
-      return self.dbw.runCount()
-    key = parent.internalPointer() # type: _ModelNode
-    if key.kind == self.Run :
-      return self.dbw.imCount(key.id)
-    if key.kind == self.Im :
-      return self.dbw.qrcCount(key.id)
-    return 0
-
-  @ic_indent
-  def columnCount(self, parent=QModelIndex()):
-    return 1
-  
-  #@ic_indent
-  def data(self, mi:QModelIndex, role=Qt.DisplayRole):
-    if mi == rootmi :
-      return None
-    key = mi.internalPointer() # type: _ModelNode
-    
-    if key.kind == self.Run :
-      if role == Qt.DisplayRole :
-        ref = self.dbw.getRun(key.row)
-        return f'{ref.id}: {ref.data}'
-      elif role == self.DBRole :
-        return self.dbw.getRun(key.row)
-      return None
-    
-    if key.kind == self.Im :
-      if role == Qt.DisplayRole :
-        ref = self.dbw.getIm(key.parent.id, key.row)
-        return f'{ref.image}'
-      elif role == self.DBRole :
-        return self.dbw.getIm(key.parent.id, key.row)
-      return None
-    
-    if key.kind == self.Qrc :
-      try :
-        if role == Qt.DisplayRole :
-          ref = self.dbw.getQrc(key.parent.id, key.row)
-          if ref.data is None :
-            d = '<Not read>'
-          else :
-            d = ref.data
-          return f'{ref.id}: {d}'
-        elif role == Qt.EditRole :
-          return self.dbw.getQrc(key.parent.id, key.row).data
-        elif role == self.DBRole :
-          return self.dbw.getQrc(key.parent.id, key.row)
-        elif role == self.PolygonRole :
-          return [ [x, y] for x, y in self.dbw.getQrc(key.parent.id, key.row).box ]
-        return None
-      except:
-        traceback.print_exc()
-        traceback.print_stack()
-    
-    return None
-
-
-
-  @ic_indent
-  def doSetData(self, mi:QModelIndex, val, role:int):
-    if mi == rootmi :
-      raise RuntimeError('Root item is not editable')
-    key = mi.internalPointer() # type: _ModelNode
-    if key.kind != self.Qrc:
-      raise RuntimeError('Only QRC are editable')
-    qrc = self.dbw.getQrc(key.parent.id, key.row)
-    emit_roles = [role]
-    if role == Qt.EditRole :
-      qrc.data = val
-    elif role == self.PolygonRole :
-      qrc.box = val
-      emit_roles.append(self.DBRole)
-    else :
-      return False
-    self.dbw.commit((qrc, ))
-    self.dataChanged.emit(mi, mi, [role])
-    return True
-
-  @ic_indent
-  def removeRows(self, row:int, count:int, parent_mi:QModelIndex):
-    if parent_mi == rootmi :
-      return False
-    key = parent_mi.internalPointer()
-    if key.kind != self.Im :
-      return False
-    self.undoStack.push(self.RemQrcCmd(self, parent_mi, row, count))
-    return True
-
-  @ic_indent
-  def flags(self, mi:QModelIndex):
-    if mi == rootmi :
-      return 0
-    key = mi.internalPointer() # type: _ModelNode
-    if key.kind != self.Qrc :
-      return Qt.ItemIsSelectable | Qt.ItemIsEnabled
-    else :
-      return Qt.ItemIsSelectable | Qt.ItemIsEnabled | Qt.ItemIsEditable
-
-  
-  @ic_indent
-  def _commit(self, parent_mi:QModelIndex, row, *args, count=None, **kwargs):
-    if count is None :
-      count = 1
-    self.beginInsertRows(parent_mi, row, row + count - 1)
-    parent = parent_mi.internalPointer() if parent_mi != rootmi else None
-    self._invalidate(parent, row)
-    rv = self.dbw.commit(*args, **kwargs)
-    self.endInsertRows()
-    return rv
-    
-  @ic_indent
-  def _remove(self, parent_mi:QModelIndex, row, *args, count=None, **kwargs):
-    if count is None :
-      count = 1
-    self.beginRemoveRows(parent_mi, row, row + count - 1)
-    parent = parent_mi.internalPointer() if parent_mi != rootmi else None
-    self._invalidate(parent, row)
-    self.dbw.remove(*args, **kwargs)
-    self.endRemoveRows()
-    
 
 
 class QRCFixer(QWidget):
@@ -521,7 +74,7 @@ class QRCFixer(QWidget):
     self.ui.view.noMoveClick.connect(self.noMoveClick)
 
     self.ui.runChooser.currentIndexChanged.connect(self.changeImListRoot)
-    self.ui.im_list.activated.connect(self.imActivated)
+    self.ui.im_list.activated.connect(self._imActivated)
     self.imActivated.connect(self.qrcBoxes.setRootIndex)
     self.imActivated.connect(self.changeQrcListRoot)
     self.imActivated.connect(self.loadIm)
@@ -540,8 +93,19 @@ class QRCFixer(QWidget):
     self.ui.qrc_del.clicked.connect(self.removeQrc)
 
     self.detectWidget.dataApplied.connect(self.onDataApplied)
+    
+    self.ui.im_remove.clicked.connect(self.toggleImIgnore)
 
   imActivated = Signal(QModelIndex)
+  
+  @Slot()
+  def toggleImIgnore(self):
+    mi = self.im_selection.currentIndex()
+    self.tree_model.toggleIgnoreImage(mi)
+
+  @Slot()
+  def _imActivated(self, mi:QModelIndex):
+    self.imActivated.emit(mi.siblingAtColumn(0))
 
   @Slot()
   def removeQrc(self):
@@ -716,10 +280,16 @@ class QRCBoxes(HandlerManager):
       super().__init__(*args, **kwargs)
       self.qrcBoxes = qrcBoxes
       self.mi = mi
-      self.setBrush(QBrush(QColor(0x00, 0x88, 0xff, 0x55)))
+      self.editable = mi.flags() & Qt.ItemIsEditable
+      if self.editable :
+        self.setBrush(QBrush(QColor(0x00, 0x88, 0xff, 0x55)))
+      else :
+        self.setBrush(NON_EDITABLE_BRUSH)
       
     def mousePressEvent(self, ev:QGraphicsSceneMouseEvent):
       super().mousePressEvent(ev)
+      if not self.editable :
+        return
       self.qrcBoxes.selection.select(self.mi, QItemSelectionModel.ClearAndSelect)
       self.qrcBoxes.selection.setCurrentIndex(self.mi, QItemSelectionModel.SelectCurrent)
       ev.accept()
@@ -816,6 +386,7 @@ class QRCBoxes(HandlerManager):
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
 
   @Slot(QModelIndex, int, int)
+  @ic_indent
   def onRowsInserted(self, parent_mi:QModelIndex, first, last):
     if parent_mi != self.parent_mi :
       return
@@ -834,6 +405,7 @@ class QRCBoxes(HandlerManager):
   
   
   @Slot(QModelIndex, int, int)
+  @ic_indent
   def onRowsRemoved(self, parent_mi:QModelIndex, first, last):
     if parent_mi != self.parent_mi :
       return
@@ -1041,6 +613,4 @@ class QRCBuilder(HandlerManager, QObject):
       if self.path.scene() == self.scene :
         self.scene.removeItem(self.path)
 
-
-  
 
