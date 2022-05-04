@@ -219,7 +219,6 @@ class FiltersModel(QAbstractListModel):
   def addFilter(self, filter, pos = None):
     if pos is None :
       pos = len(self.filterList)
-    ic(pos)
     self.beginInsertRows(rootmi, pos, pos)
     self.filterList.insert(pos, filter)
     self.endInsertRows()
@@ -227,7 +226,6 @@ class FiltersModel(QAbstractListModel):
   def removeFilter(self, pos=None):
     if pos is None :
       pos = len(self.filterList) - 1
-    ic(pos)
     self.beginRemoveRows(rootmi, pos, pos)
     del self.filterList[pos]
     self.endRemoveRows()

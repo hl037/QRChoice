@@ -14,7 +14,8 @@
    <string>QRCode Fixer</string>
   </property>
   <property name="windowIcon">
-   <iconset theme="applications-development"/>
+   <iconset theme="applications-development">
+    <normaloff>.</normaloff>.</iconset>
   </property>
   <layout class="QHBoxLayout" name="horizontalLayout_3">
    <item>
@@ -51,13 +52,34 @@
         <widget class="QComboBox" name="runChooser"/>
        </item>
        <item>
-        <widget class="QListView" name="im_list">
+        <widget class="QTreeView" name="im_list">
          <property name="sizePolicy">
           <sizepolicy hsizetype="MinimumExpanding" vsizetype="Expanding">
            <horstretch>0</horstretch>
            <verstretch>0</verstretch>
           </sizepolicy>
          </property>
+         <property name="editTriggers">
+          <set>QAbstractItemView::DoubleClicked|QAbstractItemView::EditKeyPressed</set>
+         </property>
+         <property name="rootIsDecorated">
+          <bool>false</bool>
+         </property>
+         <property name="itemsExpandable">
+          <bool>false</bool>
+         </property>
+         <property name="headerHidden">
+          <bool>false</bool>
+         </property>
+         <property name="expandsOnDoubleClick">
+          <bool>false</bool>
+         </property>
+         <attribute name="headerVisible">
+          <bool>true</bool>
+         </attribute>
+         <attribute name="headerStretchLastSection">
+          <bool>false</bool>
+         </attribute>
         </widget>
        </item>
       </layout>
@@ -70,6 +92,16 @@
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
+          <widget class="QToolButton" name="im_remove">
+           <property name="text">
+            <string>...</string>
+           </property>
+           <property name="icon">
+            <iconset theme="trash-empty"/>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QToolButton" name="qrc_add">
            <property name="enabled">
             <bool>false</bool>
@@ -78,7 +110,8 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="list-add"/>
+            <iconset theme="list-add">
+             <normaloff>.</normaloff>.</iconset>
            </property>
            <property name="checkable">
             <bool>true</bool>
@@ -94,7 +127,8 @@
             <string>...</string>
            </property>
            <property name="icon">
-            <iconset theme="list-remove"/>
+            <iconset theme="list-remove">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>
@@ -104,7 +138,8 @@
             <string>...</string>
            </property>
            <property name="icon">
-            <iconset theme="zoom-next"/>
+            <iconset theme="zoom-next">
+             <normaloff>.</normaloff>.</iconset>
            </property>
            <property name="checkable">
             <bool>true</bool>
@@ -117,7 +152,8 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="edit-undo"/>
+            <iconset theme="edit-undo">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>
@@ -127,7 +163,8 @@
             <string/>
            </property>
            <property name="icon">
-            <iconset theme="edit-redo"/>
+            <iconset theme="edit-redo">
+             <normaloff>.</normaloff>.</iconset>
            </property>
           </widget>
          </item>

@@ -161,7 +161,7 @@ class QRChoiceRun(object):
     Dispatch the images among the result table (assign target and target_id)
     """
     stmt_qrcdata_sel = sa.select(C.data).where((C.img_id == sa.bindparam('im_id')) & (C.data != None))
-    stmt_target_sel = sa.select(I.target, I.target_id).where(I.id == sa.bindparam('im_id'))
+    stmt_target_sel = sa.select(I.target, I.target_id, I.ignore).where(I.id == sa.bindparam('im_id'))
     stmt_update_im = (
       sa.update(I)
       .where(I.id == sa.bindparam('im_id'))
@@ -169,18 +169,20 @@ class QRChoiceRun(object):
     )
     to_update = set()
     for im_id in im_ids :
-      target, target_id = S.execute(stmt_target_sel, {'im_id': im_id}).one()
-      data = S.scalars(stmt_qrcdata_sel, {'im_id': im_id}).all()
-      filtered = dict()
-      for table, id in ( v for v in (d.split(':') for d in data) if len(v) == 2 ) :
-        filtered.setdefault(table, []).append(id)
-      # match target
+      target, target_id, ignore = S.execute(stmt_target_sel, {'im_id': im_id}).one()
+      data = [ d for d in S.scalars(stmt_qrcdata_sel, {'im_id': im_id}).all() if d ]
       new_target = None
-      for table_name, _ in self.run.data :
-        table, qrchoice = self.qrchoices[table_name]
-        if all( (min_ <= len(filtered.get(k, [])) <= max_) for k, (min_, max_) in qrchoice.items() ) :
-          new_target = table_name
-          break
+      new_target_id = None
+      filtered = dict()
+      if not ignore :
+        for table, id in ( v for v in (d.split(':') for d in data) if len(v) == 2 ) :
+          filtered.setdefault(table, []).append(id)
+        # match target
+        for table_name, _ in self.run.data :
+          table, qrchoice = self.qrchoices[table_name]
+          if all( (min_ <= len(filtered.get(k, [])) <= max_) for k, (min_, max_) in qrchoice.items() ) :
+            new_target = table_name
+            break
       if new_target is not None :
         # create new object
         obj_dict = dict(self.default_values[new_target])
@@ -226,7 +228,7 @@ class QRChoiceRun(object):
     )
     for target, target_id in targets :
       table, qrchoice = self.qrchoices[target]
-      data = set(S.scalars(stmt_sel_qrcdata, {'target':target, 'target_id': target_id}).all())
+      data = set(( d for d in S.scalars(stmt_sel_qrcdata, {'target':target, 'target_id': target_id}).all() if d))
       filtered = dict()
       for field_name, id in ( v for v in (d.split(':') for d in data) if len(v) == 2) :
         filtered.setdefault(field_name, []).append(id)

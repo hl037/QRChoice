@@ -15,9 +15,10 @@ from PySide6.QtGui import (QBrush, QColor, QConicalGradient, QCursor,
     QFont, QFontDatabase, QGradient, QIcon,
     QImage, QKeySequence, QLinearGradient, QPainter,
     QPalette, QPixmap, QRadialGradient, QTransform)
-from PySide6.QtWidgets import (QApplication, QComboBox, QGraphicsView, QHBoxLayout,
-    QListView, QSizePolicy, QSplitter, QToolButton,
-    QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QComboBox, QGraphicsView,
+    QHBoxLayout, QHeaderView, QListView, QSizePolicy,
+    QSplitter, QToolButton, QTreeView, QVBoxLayout,
+    QWidget)
 
 from .custom import ImageView
 
@@ -26,7 +27,13 @@ class Ui_QRCFixer(object):
         if not QRCFixer.objectName():
             QRCFixer.setObjectName(u"QRCFixer")
         QRCFixer.resize(1200, 800)
-        icon = QIcon(QIcon.fromTheme(u"applications-development"))
+        icon = QIcon()
+        iconThemeName = u"applications-development"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon = QIcon.fromTheme(iconThemeName)
+        else:
+            icon.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
         QRCFixer.setWindowIcon(icon)
         self.horizontalLayout_3 = QHBoxLayout(QRCFixer)
         self.horizontalLayout_3.setObjectName(u"horizontalLayout_3")
@@ -58,13 +65,20 @@ class Ui_QRCFixer(object):
 
         self.verticalLayout.addWidget(self.runChooser)
 
-        self.im_list = QListView(self.verticalLayoutWidget)
+        self.im_list = QTreeView(self.verticalLayoutWidget)
         self.im_list.setObjectName(u"im_list")
         sizePolicy = QSizePolicy(QSizePolicy.MinimumExpanding, QSizePolicy.Expanding)
         sizePolicy.setHorizontalStretch(0)
         sizePolicy.setVerticalStretch(0)
         sizePolicy.setHeightForWidth(self.im_list.sizePolicy().hasHeightForWidth())
         self.im_list.setSizePolicy(sizePolicy)
+        self.im_list.setEditTriggers(QAbstractItemView.DoubleClicked|QAbstractItemView.EditKeyPressed)
+        self.im_list.setRootIsDecorated(False)
+        self.im_list.setItemsExpandable(False)
+        self.im_list.setHeaderHidden(False)
+        self.im_list.setExpandsOnDoubleClick(False)
+        self.im_list.header().setVisible(True)
+        self.im_list.header().setStretchLastSection(False)
 
         self.verticalLayout.addWidget(self.im_list)
 
@@ -81,11 +95,24 @@ class Ui_QRCFixer(object):
 
         self.horizontalLayout_2 = QHBoxLayout()
         self.horizontalLayout_2.setObjectName(u"horizontalLayout_2")
+        self.im_remove = QToolButton(self.verticalLayoutWidget_2)
+        self.im_remove.setObjectName(u"im_remove")
+        icon1 = QIcon(QIcon.fromTheme(u"trash-empty"))
+        self.im_remove.setIcon(icon1)
+
+        self.horizontalLayout_2.addWidget(self.im_remove)
+
         self.qrc_add = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_add.setObjectName(u"qrc_add")
         self.qrc_add.setEnabled(False)
-        icon1 = QIcon(QIcon.fromTheme(u"list-add"))
-        self.qrc_add.setIcon(icon1)
+        icon2 = QIcon()
+        iconThemeName = u"list-add"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon2 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon2.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
+        self.qrc_add.setIcon(icon2)
         self.qrc_add.setCheckable(True)
 
         self.horizontalLayout_2.addWidget(self.qrc_add)
@@ -93,30 +120,54 @@ class Ui_QRCFixer(object):
         self.qrc_del = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_del.setObjectName(u"qrc_del")
         self.qrc_del.setEnabled(False)
-        icon2 = QIcon(QIcon.fromTheme(u"list-remove"))
-        self.qrc_del.setIcon(icon2)
+        icon3 = QIcon()
+        iconThemeName = u"list-remove"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon3 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon3.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
+        self.qrc_del.setIcon(icon3)
 
         self.horizontalLayout_2.addWidget(self.qrc_del)
 
         self.qrc_detect = QToolButton(self.verticalLayoutWidget_2)
         self.qrc_detect.setObjectName(u"qrc_detect")
-        icon3 = QIcon(QIcon.fromTheme(u"zoom-next"))
-        self.qrc_detect.setIcon(icon3)
+        icon4 = QIcon()
+        iconThemeName = u"zoom-next"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon4 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon4.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
+        self.qrc_detect.setIcon(icon4)
         self.qrc_detect.setCheckable(True)
 
         self.horizontalLayout_2.addWidget(self.qrc_detect)
 
         self.undo = QToolButton(self.verticalLayoutWidget_2)
         self.undo.setObjectName(u"undo")
-        icon4 = QIcon(QIcon.fromTheme(u"edit-undo"))
-        self.undo.setIcon(icon4)
+        icon5 = QIcon()
+        iconThemeName = u"edit-undo"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon5 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon5.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
+        self.undo.setIcon(icon5)
 
         self.horizontalLayout_2.addWidget(self.undo)
 
         self.redo = QToolButton(self.verticalLayoutWidget_2)
         self.redo.setObjectName(u"redo")
-        icon5 = QIcon(QIcon.fromTheme(u"edit-redo"))
-        self.redo.setIcon(icon5)
+        icon6 = QIcon()
+        iconThemeName = u"edit-redo"
+        if QIcon.hasThemeIcon(iconThemeName):
+            icon6 = QIcon.fromTheme(iconThemeName)
+        else:
+            icon6.addFile(u".", QSize(), QIcon.Normal, QIcon.Off)
+        
+        self.redo.setIcon(icon6)
 
         self.horizontalLayout_2.addWidget(self.redo)
 
@@ -135,6 +186,7 @@ class Ui_QRCFixer(object):
 
     def retranslateUi(self, QRCFixer):
         QRCFixer.setWindowTitle(QCoreApplication.translate("QRCFixer", u"QRCode Fixer", None))
+        self.im_remove.setText(QCoreApplication.translate("QRCFixer", u"...", None))
         self.qrc_add.setText("")
         self.qrc_del.setText(QCoreApplication.translate("QRCFixer", u"...", None))
         self.qrc_detect.setText(QCoreApplication.translate("QRCFixer", u"...", None))

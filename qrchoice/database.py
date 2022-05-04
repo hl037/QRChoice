@@ -43,6 +43,7 @@ class _QRCDetectionImg(ReprMixin):
   image_name = sa.Column(sa.String(256), unique=True)
   target = sa.Column(sa.String(128))
   target_id = sa.Column(sa.Integer)
+  ignore = sa.Column(sa.Boolean)
   
 @_InternalRegistery.mapped
 class _QRCDetectionQRC(ReprMixin):
