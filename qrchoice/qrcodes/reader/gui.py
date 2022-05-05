@@ -185,20 +185,20 @@ class QRCFixer(QWidget):
       self.detectWidget.setBox(None)
       
   @Slot(QModelIndex, QModelIndex, 'QList<int>')
+  @ic_indent
   def changeDetectBox(self, topleft:QModelIndex, botright:QModelIndex, roles:list[int]) :
-    if QRCTreeModel.PolygonRole not in roles :
+    if len(roles) != 0 and QRCTreeModel.PolygonRole not in roles :
       return
     current_qrc_mi = self.qrc_selection.currentIndex()
     if current_qrc_mi == rootmi :
       return
     
-    current_im_mi = self.im_selection.currentIndex()
+    current_im_mi = self.im_selection.currentIndex().siblingAtColumn(0)
     if topleft.parent() != current_im_mi :
       return
 
     if not (topleft.row() <= current_qrc_mi.row() <= botright.row()) :
       return
-
     box = self.tree_model.data(current_qrc_mi, QRCTreeModel.PolygonRole)
     self.detectWidget.setBox(box)
 

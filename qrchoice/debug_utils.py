@@ -32,6 +32,7 @@ def ic_indent(f):
     try :
       return f(*args, **kwargs)
     except :
+      ic('An error occured, remote debugger launched')
       traceback.print_exc()
       sockpdb.pm()
 

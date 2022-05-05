@@ -59,6 +59,7 @@ class DBWrapper(object):
   stmt_qrc_sel_extra = sa.select(C).where(
     (C.img_id == I.id) &
     (I.id != _im_id) &
+    (I.run_id == sa.bindparam('run_id')) &
     (I.target == sa.bindparam('im_target')) &
     (I.target_id == sa.bindparam('im_target_id'))
   )
@@ -95,7 +96,7 @@ class DBWrapper(object):
       self._extra_qrc_row = len(self._qrc)
       im = S.get(I, im_id)
       if im.target_id :
-        for qrc in S.scalars(self.stmt_qrc_sel_extra, {'im_id': im_id, 'im_target': im.target, 'im_target_id':im.target_id}) :
+        for qrc in S.scalars(self.stmt_qrc_sel_extra, {'im_id': im_id, 'im_target': im.target, 'im_target_id':im.target_id, 'run_id':im.run_id}) :
           if qrc.data not in data :
             data.add(qrc.data)
             self._qrc.append(qrc)
@@ -460,7 +461,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
         if role == Qt.DisplayRole :
           col = mi.column()
           if col == 0 :
-            return f'{ref.image_name}'
+            return f'{ref.id}:{ref.image_name}'
           elif col == 1 :
             return f'{ref.target}'
           else :
@@ -521,6 +522,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       else :
         return False
       S.commit()
+      self.dataChanged.emit(mi, mi)
       return True
 
   def removeRows(self, row:int, count:int, parent_mi:QModelIndex):
