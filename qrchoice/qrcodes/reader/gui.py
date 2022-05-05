@@ -105,7 +105,8 @@ class QRCFixer(QWidget):
 
   @Slot()
   def _imActivated(self, mi:QModelIndex):
-    self.imActivated.emit(mi.siblingAtColumn(0))
+    target = mi.siblingAtColumn(0)
+    self.imActivated.emit(target)
 
   @Slot()
   def removeQrc(self):
@@ -378,12 +379,15 @@ class QRCBoxes(HandlerManager):
       self.scene.removeItem(p)
     qrc_count = self.tree_model.rowCount(parent_mi)
     if qrc_count == 0 :
-      return
-    indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(qrc_count) ]
-    self.polys = [ self.PolygonItem(self, mi) for mi in indices ]
-    for p in self.polys :
-      self.scene.addItem(p)
-    self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
+      self.boxes = []
+      self.polys = []
+    else :
+      indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(qrc_count) ]
+      self.polys = [ self.PolygonItem(self, mi) for mi in indices ]
+      for p in self.polys :
+        self.scene.addItem(p)
+      self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
+    ic('setRoot', self.parent_mi.internalPointer(), len(self.polys))
 
   @Slot(QModelIndex, int, int)
   @ic_indent
@@ -391,6 +395,7 @@ class QRCBoxes(HandlerManager):
     if parent_mi != self.parent_mi :
       return
     last += 1
+    ic('PreRowsInserted', first, last, len(self.polys))
     if self.current != rootmi and self.current.row() >= first:
       self.current = self.tree_model.index(self.current.row() + last - first, 0, parent_mi)
     indices = [ self.tree_model.index(row, 0, parent_mi) for row in range(first, len(self.polys) + last - first) ]
@@ -402,6 +407,7 @@ class QRCBoxes(HandlerManager):
     for i, p in enumerate(self.polys[last:], start=last) :
       p.mi = self.tree_model.index(i, 0, parent_mi)
     self.changeData(indices[0], indices[-1], [QRCTreeModel.PolygonRole])
+    ic('PostRowsInserted', len(self.polys))
   
   
   @Slot(QModelIndex, int, int)
@@ -416,6 +422,8 @@ class QRCBoxes(HandlerManager):
     del self.boxes[first:last]
     for i, p in enumerate(self.polys[first:], start=first) :
       p.mi = self.tree_model.index(i, 0, parent_mi)
+    ic('RowsRemoved', first, last, len(self.polys))
+    self.current = rootmi
     # current is updated by the list view...
     # breakpoint() 
     # if self.current != rootmi :

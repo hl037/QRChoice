@@ -135,8 +135,6 @@ class DBWrapper(object):
 
   def commit(self, S: sa.orm.Session, objs, invalidate_im=False, invalidate_run=False):
     n_objs = [ S.merge(obj) for obj in objs ]
-    ic('')
-    ic('commit', n_objs)
     S.add_all(n_objs)
     S.flush()
     for obj in n_objs :
@@ -145,13 +143,10 @@ class DBWrapper(object):
       self.cur_im = None
     if invalidate_run :
       self.cur_run = None
-    ic(n_objs)
     return n_objs
       
   def remove(self, S: sa.orm.Session, objs, invalidate_im=False, invalidate_run=False):
     n_objs = [ S.merge(obj) for obj in objs ]
-    ic('')
-    ic('remove', n_objs)
     for obj in n_objs :
       S.delete(obj)
     S.flush()
@@ -517,12 +512,14 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       emit_roles = [role]
       if role == Qt.EditRole :
         qrc.data = val
+        self.dbw.commit(S, (qrc, ))
+        self._dispatch(S, mi.parent())
       elif role == self.PolygonRole :
         qrc.box = val
         emit_roles.append(self.DBRole)
+        self.dbw.commit(S, (qrc, ))
       else :
         return False
-      self.dbw.commit(S, (qrc, ))
       S.commit()
       return True
 
@@ -617,6 +614,7 @@ class QRCTreeModel(UndoStackModelMixin, QAbstractItemModel):
       if count :
         self.beginInsertRows(cmi, 0, count - 1)
         self._updating_children.remove((self.Im, cim_id))
+        self._invalidate_qrcs(cmi.internalPointer(), qrc_ids)
         self.endInsertRows()
       else :
         self._updating_children.remove((self.Im, cim_id))

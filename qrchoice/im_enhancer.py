@@ -87,7 +87,7 @@ class BrightnessMore(Brightness):
   amount = 1.2
   
 @registerImFilter
-class BrightnessLess(ImFilter):
+class BrightnessLess(Brightness):
   """
   Add brightness
   """
