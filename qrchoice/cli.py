@@ -209,6 +209,86 @@ def imEnhance(filters, output:Path, paths):
     im_.save(output / p.name)
     progress(i, len(paths))
   
+@main.command(name='py')
+@click.argument('dbpath', type=str, nargs=1)
+@click.option('--debug', '-g', is_flag=True, help='enable debugger on exception in module')
+@click.option('-i', type=Path, multiple=True)
+@click.option('-e', is_flag=True, help="Exit immediately")
+def py(dbpath, debug, i, e):
+  """
+  Embed ipython with the table in the namespace
+  """
+  import sys
+  from importlib.machinery import ModuleSpec, SourceFileLoader
+  from importlib.util import module_from_spec
+  from . import database
+  from .database import _QRCDetectionRun as R, _QRCDetectionImg as I, _QRCDetectionQRC as C, getConverter
+  import sqlalchemy as sa
+  db = database.DB.fromDB(database.engineFromPath(dbpath))
+  user_module = module_from_spec((ModuleSpec('qrc', None)))
+  sys.modules['qrc'] = user_module
+  ns = user_module.__dict__
+  ns |= {'R': R, 'I':I, 'Q': C}
+  ns['db'] = db
+  ns['engine'] = db.engine
+  registery = sa.orm.registry()
+  for name, table in db.t.items() :
+    t = type(name, (object,), {})
+    registery.map_imperatively(t, table)
+    ns[name] = t
+
+  user_module.__all__ = list(ns.keys())
+
+  for p in i :
+    p = Path(p)
+    spec = ModuleSpec(p.stem, SourceFileLoader(p.stem, str(p)))
+    m = module_from_spec(spec)
+    sys.modules[p.stem] = m
+    if debug :
+      try :
+        spec.loader.exec_module(m)
+      except :
+        import pdb; pdb.xpm()
+    else :
+      spec.loader.exec_module(m)
+    ns |= m.__dict__
+    ns[p.stem] = m
+
+
+  db_table_list = '\n  '.join(db.t.keys())
+  if e :
+    return
+  
+  from IPython import embed
+  from traitlets.config import get_config
+
+  c = get_config()
+  c.InteractiveShellEmbed.colors = "Neutral"
+  c.InteractiveShell.banner2 = f'''Available objects :
+Builtin : 
+  R : Run table
+  I : image table
+  Q : QRC table
+
+In this database :
+  {db_table_list}
+
+A session 'S' has been created, and sqlalchemy is available with `sa` module.
+'''
+  c.TerminalInteractiveShell.confirm_exit = False
+  c.InteractiveShell.confirm_exit = False
+  with db.session() as S :
+    ns['S'] = S
+    ns['sa'] = sa
+    ns['e'] = S.execute
+    ns['s'] = S.scalars
+    ns['s1'] = S.scalar
+    ns['sel'] = sa.select
+    ns['count'] = sa.func.count
+    embed(config=c, user_module=user_module)
+    
+
+
 
 
 if __name__ == "__main__" :

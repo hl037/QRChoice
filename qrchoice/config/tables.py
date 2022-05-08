@@ -218,11 +218,11 @@ def postProcessTable(c: common.Config):
         S.mid_name,
         c.sa_model,
         *(
-          sa.Column(colname, None)
+          sa.Column(colname, None, primary_key=True)
           for colname, _ in S.src_col_names()
         ),
         *(
-          sa.Column(colname, None)
+          sa.Column(colname, None, primary_key=True)
           for colname, _ in S.target_col_names()
         ),
         sa.ForeignKeyConstraint(
